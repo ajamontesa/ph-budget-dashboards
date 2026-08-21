@@ -92,6 +92,33 @@ columns, with a CSV download of whatever is currently filtered.
 
 **5. Notes** — the caveats that travel with the data.
 
+## Mobile
+
+The app adapts below a 768px viewport. A small script reports the browser width
+to the server on connect, on resize and on orientation change; the server needs
+this because Shiny renders plots as server-side raster images and cannot reflow
+them the way CSS reflows a div.
+
+On a narrow screen:
+
+- **Rankings are trimmed** — 30 bars becomes 12, and top/bottom 15 becomes 8.
+  Thirty bars in a 360px panel is not a smaller version of the desktop chart,
+  it is an unreadable one.
+- **Plot heights are computed from row count** rather than fixed in pixels, with
+  extra room per row because labels wrap to more lines when narrow.
+- **Labels wrap tighter and type shrinks slightly**, so the label column does
+  not crowd out the bars.
+- **Tables collapse their identity columns into one** — "Agency — Indicator" —
+  and the years scroll sideways. Frozen columns are dropped: at phone width four
+  frozen columns consume the whole screen, and DT's FixedColumns is unreliable
+  on touch.
+- **Tables use ordinary paging** instead of a `100vh`-based scroll body, because
+  mobile browsers resize the viewport as their chrome hides and reappears, which
+  makes a vh-sized table jump while the reader scrolls.
+
+The wide layout is the default until the browser reports in, so a desktop
+session never flashes the narrow layout on load.
+
 ## Definitions
 
 | Indicator | Definition |

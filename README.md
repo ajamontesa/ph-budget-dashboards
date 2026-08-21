@@ -73,6 +73,9 @@ These hold everywhere and are worth keeping consistent as dashboards are added.
   year ahead of execution. Reference years are detected from the data on every
   load, never hard-coded.
 - **Appropriations are Total Appropriations** — New plus Automatic.
+- **Layouts adapt below 768px.** Plot heights are derived from row count rather
+  than hard-coded, ranking sizes are trimmed, and tables collapse their identity
+  columns and drop frozen columns. Any new dashboard should do the same.
 - **`DEPARTMENT` + `AGENCY` is the join key**, but agencies move between
   departments across and within administrations, so it is a key rather than a
   stable identity.
