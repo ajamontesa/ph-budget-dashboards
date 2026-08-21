@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<!--
+  Agency Budget & Utilization Dashboard — embed page
+  PH Budget Dashboards, People's Budget Coalition
+
+  Copy into the ph-budget-analysis repo as dashboard-agency-budget.html and
+  link to it from index.html. Replace DASHBOARD_URL below with the Connect
+  Cloud URL.
+
+  One of these per dashboard. For a sibling (e.g. P/A/P level), copy this file,
+  change the title, heading, scope line and URL, and link it from the index the
+  same way.
+
+  If Connect Cloud refuses to be framed (blank iframe plus a frame-ancestors
+  or X-Frame-Options error in the browser console), delete the <iframe> block
+  and uncomment the launch-card block beneath it. Everything else stays.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agency Budget &amp; Utilization Dashboard — PH Budget Analysis</title>
+<style>
+  :root {
+    --navy: #1B4965;
+    --blue: #5FA8D3;
+    --sand: #CAE9F5;
+    --ink:  #1f2933;
+    --grey: #6C757D;
+    --line: #dfe6ec;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: var(--ink);
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: var(--navy);
+    color: #fff;
+    padding: 0.9rem 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+  header .sub { color: var(--sand); font-size: 0.85rem; font-weight: 400; }
+
+  .back {
+    color: #fff;
+    text-decoration: none;
+    border: 1px solid rgba(255,255,255,0.45);
+    border-radius: 4px;
+    padding: 0.35rem 0.8rem;
+    font-size: 0.88rem;
+    white-space: nowrap;
+    transition: background 0.15s ease;
+  }
+  .back:hover, .back:focus { background: rgba(255,255,255,0.15); }
+
+  .notice {
+    background: var(--sand);
+    color: var(--navy);
+    font-size: 0.82rem;
+    padding: 0.5rem 1.25rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .notice a { color: var(--navy); }
+
+  .frame-wrap { flex: 1 1 auto; min-height: 0; }
+  iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  /* Fallback launch card, used when framing is blocked */
+  .launch {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2.5rem 1.25rem;
+  }
+  .launch .card {
+    max-width: 640px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+  }
+  .launch h2 { margin-top: 0; color: var(--navy); font-size: 1.35rem; }
+  .launch p { color: var(--grey); line-height: 1.55; }
+  .btn {
+    display: inline-block;
+    margin-top: 0.75rem;
+    background: var(--navy);
+    color: #fff;
+    text-decoration: none;
+    padding: 0.7rem 1.5rem;
+    border-radius: 5px;
+    font-weight: 600;
+  }
+  .btn:hover { background: #163d54; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 0.6rem 1.25rem;
+    font-size: 0.78rem;
+    color: var(--grey);
+  }
+
+  /* An iframed Shiny app is unusable on a small screen: the sidebar collapses
+     over the plots and the tall charts fight the page scroll. Below 820px the
+     frame is dropped in favour of the launch card. */
+  @media (max-width: 820px) {
+    .frame-wrap { display: none; }
+    .launch.mobile-only { display: flex; }
+  }
+  @media (min-width: 821px) {
+    .launch.mobile-only { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Agency Budget &amp; Utilization</h1>
+    <div class="sub">National agency level &middot; NEP, GAA and utilization &middot; FY 2016&ndash;2027</div>
+  </div>
+  <a class="back" href="index.html">&larr; Back to all reports</a>
+</header>
+
+<div class="notice">
+  All figures are in <strong>thousands of pesos</strong>, as published by the DBM.
+  Source data:
+  <a href="https://docs.google.com/spreadsheets/d/1P3q46DGcN3SZ7cRwXfEhAMiDqCqQof1s3LV0-CK2lIY"
+     target="_blank" rel="noopener">PH Budget Data Set</a>.
+</div>
+
+<!-- ===== Embedded dashboard (wide screens) ===== -->
+<div class="frame-wrap">
+  <iframe
+    src="DASHBOARD_URL"
+    title="Agency Budget and Utilization Dashboard"
+    loading="lazy"
+    allow="clipboard-write"></iframe>
+</div>
+
+<!-- ===== Launch card (small screens, and the fallback if framing is blocked) ===== -->
+<div class="launch mobile-only">
+  <div class="card">
+    <h2>Open the dashboard</h2>
+    <p>
+      The dashboard needs a wider screen than this one to be usable &mdash; the
+      charts run to thirty rows and the tables are dozens of columns across.
+      It opens in its own tab.
+    </p>
+    <a class="btn" href="DASHBOARD_URL" target="_blank" rel="noopener">
+      Open the dashboard &rarr;
+    </a>
+  </div>
+</div>
+
+<!--
+  ===== FALLBACK: use this instead of the .frame-wrap block above if Connect
+  Cloud blocks framing. Change class="launch mobile-only" to class="launch"
+  on the block above, and delete the .frame-wrap div entirely.
+-->
+
+<footer>
+  People&rsquo;s Budget Coalition &middot;
+  <a href="index.html">All agency reports and briefings</a>
+</footer>
+
+</body>
+</html>
