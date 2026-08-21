@@ -284,6 +284,27 @@ tidy_budget <- function(raw) {
       period        = "Annual"
     )
 
+  # `level` is a single value per row, but membership is not exclusive. A
+  # department with no separate bureau rows — DPWH, OP, OVP, DOE and others —
+  # IS its own sole agency. Classifying it only as a department made it vanish
+  # from every agency ranking, which quietly dropped some of the largest
+  # spenders in the budget from the agency view.
+  #
+  # So membership is carried as two independent flags rather than inferred
+  # from `level`. `level` is kept for display, since "Department" is still the
+  # honest label for such a row.
+  structure_flags <- long %>%
+    distinct(department, agency, level) %>%
+    group_by(department) %>%
+    mutate(n_child_agencies = sum(level == "Agency")) %>%
+    ungroup() %>%
+    mutate(
+      is_department = level == "Department",
+      is_agency     = level == "Agency" |
+                      (level == "Department" & n_child_agencies == 0)
+    ) %>%
+    select(department, agency, n_child_agencies, is_department, is_agency)
+
   long %>%
     group_by(department, agency, level, particular, expense_class, period, year) %>%
     summarise(
@@ -291,8 +312,9 @@ tidy_budget <- function(raw) {
       .groups = "drop"
     ) %>%
     left_join(sheet_order, by = c("department", "agency")) %>%
-    select(department, agency, level, dept_ord, agency_ord,
-           particular, expense_class, period, year, amount)
+    left_join(structure_flags, by = c("department", "agency")) %>%
+    select(department, agency, level, is_department, is_agency, n_child_agencies,
+           dept_ord, agency_ord, particular, expense_class, period, year, amount)
 }
 
 # ---------------------------------------------------------------------------
@@ -301,14 +323,16 @@ tidy_budget <- function(raw) {
 
 widen_budget <- function(long) {
   w <- long %>%
-    select(department, agency, level, dept_ord, agency_ord, year, particular, amount) %>%
+    select(department, agency, level, is_department, is_agency,
+           dept_ord, agency_ord, year, particular, amount) %>%
     pivot_wider(names_from = particular, values_from = amount)
 
   for (p in PARTICULARS) if (!p %in% names(w)) w[[p]] <- NA_real_
 
   yr <- range(long$year, na.rm = TRUE)
   w %>%
-    group_by(department, agency, level, dept_ord, agency_ord) %>%
+    group_by(department, agency, level, is_department, is_agency,
+             dept_ord, agency_ord) %>%
     complete(year = seq(yr[1], yr[2])) %>%
     arrange(year, .by_group = TRUE) %>%
     ungroup()
@@ -377,6 +401,12 @@ build_indicators <- function(long) {
     ) %>%
     ungroup() %>%
     select(-tb_nep, -tb_gaa, -tn_nep, -tn_gaa, -dp_nep, -dp_gaa)
+}
+
+# Rows belonging to the requested view. Not `level == lvl`: a sole-agency
+# department belongs to both.
+at_level <- function(df, lvl) {
+  if (identical(lvl, "Department")) filter(df, is_department) else filter(df, is_agency)
 }
 
 has_any_value <- function(df) {
@@ -733,6 +763,16 @@ ui <- page_navbar(
       the DBM. Stored values are never converted; the display-unit selector rescales the
       presentation only, and ratios are unaffected.</p>
 
+      <h5>Departments that are their own sole agency</h5>
+      <p>Some departments have no separate bureau or attached-agency lines in the source
+      sheet — DPWH, the Office of the President, the Office of the Vice-President and
+      DOE among them. Such a department <b>is</b> its own only agency, so it appears in
+      both the department and the agency views rather than being confined to the
+      department one. Excluding them from agency rankings would drop several of the
+      largest spenders in the budget out of the agency picture entirely.</p>
+      <p>Their share-of-parent-department figure is left blank rather than shown as 100%,
+      which would be true but uninformative.</p>
+
       <h5>Ordering</h5>
       <p>Departments and agencies appear in <b>the order they occupy in the source sheet</b>,
       which follows the GAA\'s own structural sequence, not alphabetical order. Every table,
@@ -955,7 +995,7 @@ server <- function(input, output, session) {
   output$vb_gaa  <- renderText(as.character(ref_years()$gaa   %||% "\u2014"))
   output$vb_exec <- renderText(as.character(ref_years()$alloc %||% "\u2014"))
   output$vb_n    <- renderText({
-    d <- budget_long() %>% filter(level != "Aggregate")
+    d <- budget_long() %>% filter(is_agency)
     format(nrow(distinct(d, department, agency)), big.mark = ",")
   })
 
@@ -974,7 +1014,8 @@ server <- function(input, output, session) {
     div  <- unit_divisor(input$unit)
 
     df <- budget_ind() %>%
-      filter(level == lvl, year == yr) %>%
+      at_level(lvl) %>%
+      filter(year == yr) %>%
       mutate(val = .data[[meas]]) %>%
       filter(!is.na(val), val > 0) %>%
       slice_max(val, n = N_TOP_BUDGET, with_ties = FALSE)
@@ -1020,7 +1061,8 @@ server <- function(input, output, session) {
     lo_lab <- paste("Lowest",  N_TOP_RATES, "\u2014", order_lab)
 
     df <- budget_ind() %>%
-      filter(level == lvl, year == yr,
+      at_level(lvl) %>%
+      filter(year == yr,
              !is.na(Allotments), Allotments >= floor_thousands) %>%
       # A flagged zero disbursement is missing information, not 0% performance,
       # so it is blanked rather than plotted at the floor. The obligation point
@@ -1067,7 +1109,11 @@ server <- function(input, output, session) {
       scale_x_discrete(labels = function(x) sub("___.*$", "", x)) +
       scale_y_continuous(labels = percent_format(accuracy = 1),
                          breaks = scales::breaks_pretty(n = 6),
-                         expand = expansion(mult = c(0.06, 0.08))) +
+                         expand = expansion(mult = c(0.03, 0.08))) +
+      # Always show the full 0-100% range so a low rate reads as low rather
+      # than being stretched to fill the panel. Values above 100% push the
+      # axis out; they never get clipped.
+      expand_limits(y = c(0, 1)) +
       scale_colour_manual(values = c("Obligation Rate"   = PBC_NAVY,
                                      "Disbursement Rate" = PBC_BLUE)) +
       labs(
@@ -1096,7 +1142,8 @@ server <- function(input, output, session) {
     div    <- unit_divisor(input$unit)
 
     df <- budget_ind() %>%
-      filter(level == lvl, year == yr, !is.na(NEP), !is.na(GAA), NEP > 0)
+      at_level(lvl) %>%
+      filter(year == yr, !is.na(NEP), !is.na(GAA), NEP > 0)
 
     if (nrow(df) < 2) {
       return(empty_plot(paste0(
@@ -1207,6 +1254,10 @@ server <- function(input, output, session) {
       scale_colour_manual(values = c("Obligation Rate" = PBC_NAVY,
                                      "Disbursement Rate" = PBC_BLUE)) +
       scale_y_continuous(labels = percent_format(accuracy = 1)) +
+      # Anchored to 0-100% so year-on-year movement is read against the whole
+      # scale, not against a window that rescales itself each time the filter
+      # changes. Rates above 100% extend the axis rather than being cut off.
+      expand_limits(y = c(0, 1)) +
       scale_x_continuous(breaks = scales::breaks_width(1)) +
       labs(title = "Utilization rates", x = NULL, y = NULL,
            caption = paste0("Both rates use Allotments as the denominator; the gap is ",

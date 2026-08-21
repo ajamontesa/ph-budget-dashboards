@@ -128,6 +128,15 @@ empty and `NEP vs Prior GAA %` carries the comparison.
   practice: a department-filtered trend can truncate an agency at its transfer
   year without the break being visible, so track a body by agency rather than by
   department across a reorganisation.
+- **A department with no bureau rows is its own sole agency.** DPWH, OP, OVP,
+  DOE and others have no separate attached-agency lines in the sheet, so they
+  appear in both the department and the agency views. Treating "agency" as
+  everything that is not a department would drop several of the largest
+  spenders out of the agency picture entirely. Departments that *do* have
+  bureau rows stay out of the agency view, so nothing is double-counted.
+- **Utilization axes are anchored at 0–100%.** A low rate should read as low
+  rather than being stretched to fill the panel. Rates above 100% extend the
+  axis rather than being clipped.
 - **Sheet order is preserved.** Departments and agencies appear in the order
   they occupy in the source sheet, which follows the GAA's own structural
   sequence. Alphabetizing would destroy it, so every table, filter and export
