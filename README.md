@@ -72,7 +72,9 @@ These hold everywhere and are worth keeping consistent as dashboards are added.
 - **The data frontier is ragged.** NEP runs a year ahead of GAA, which runs a
   year ahead of execution. Reference years are detected from the data on every
   load, never hard-coded.
-- **Appropriations are Total Appropriations** — New plus Automatic.
+- **Appropriations come on two bases.** New Appropriations is what Congress
+  legislates for the year; Total is New plus Automatic. Total is always at least
+  as large as New. Dashboards default to New and label which basis is in view.
 - **Layouts adapt below 768px.** Plot heights are derived from row count rather
   than hard-coded, ranking sizes are trimmed, and tables collapse their identity
   columns and drop frozen columns. Any new dashboard should do the same.

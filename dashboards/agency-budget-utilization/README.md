@@ -92,6 +92,32 @@ columns, with a CSV download of whatever is currently filtered.
 
 **5. Notes** — the caveats that travel with the data.
 
+## New versus Total Appropriations
+
+NEP and GAA are published on two bases, and a sidebar toggle switches every
+figure on the Budget Overview, Agency Trends and Key Indicators tabs between
+them. **New Appropriations is the default** — it is what Congress legislates
+for the year, and so the fairer basis for comparing agencies or reading what the
+legislature changed. Total Appropriations is New plus Automatic (RLIP, special
+accounts, debt service), and is always at least as large as New for the same
+line.
+
+The toggle sits in the sidebar rather than on a tab, because it governs two
+tabs; a per-tab copy would mean two inputs kept in sync.
+
+- **Largest budgets** draws both bases on every bar: a pale Total bar with the
+  solid New bar over it, so the exposed tail is the automatic component. The
+  toggle changes only the ranking and the printed value, both of which are
+  named in the title and subtitle.
+- **Congressional adjustment** follows the toggle rather than showing both — a
+  diverging bar carrying two bases at once is unreadable.
+- **Data Viewer** ignores the toggle and shows the sheet as published, with New
+  and Total as separate rows.
+
+If the sheet carries no New rows, the app falls back to Total and says so in the
+sidebar rather than serving empty charts. Any `PARTICULAR` label the parser does
+not recognise is reported in the sidebar rather than silently dropped.
+
 ## Mobile
 
 The app adapts below a 768px viewport. A small script reports the browser width

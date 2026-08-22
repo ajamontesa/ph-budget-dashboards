@@ -65,9 +65,17 @@ CACHE_RETRY_SECONDS <- 120
 # shared cache. Long-lived tabs pick up new data without a manual reload.
 CACHE_POLL_MS <- 5 * 60 * 1000
 
-N_TOP_BUDGET <- 30
-N_TOP_RATES  <- 15
-N_TOP_CONG   <- 15
+# --- Responsive behaviour --------------------------------------------------
+# Below this viewport width the app switches to its narrow layout: fewer bars,
+# heights computed from row count rather than fixed, tighter labels, and tables
+# without frozen columns.
+MOBILE_BREAKPOINT <- 768
+
+# Rankings are trimmed on a phone. Thirty bars in a 360px-wide panel is not a
+# smaller version of the desktop chart, it is an unreadable one.
+N_TOP_BUDGET <- 30;  N_TOP_BUDGET_MOBILE <- 12
+N_TOP_RATES  <- 15;  N_TOP_RATES_MOBILE  <- 8
+N_TOP_CONG   <- 15;  N_TOP_CONG_MOBILE   <- 8
 
 # Indicator registry. One place to add an indicator: it flows into the
 # Key Indicators table, its formatting and its CSV export automatically.
@@ -528,6 +536,13 @@ theme_pbc <- function(base_size = 13) {
     )
 }
 
+# Plot height derived from row count rather than hard-coded. A fixed pixel
+# height is the main reason the charts were unusable on a phone: 30 bars in
+# 1040px is comfortable at 700px wide and illegible at 360px.
+plot_height <- function(n_rows, per_row, pad, floor_px = 300) {
+  max(floor_px, round(n_rows * per_row + pad))
+}
+
 empty_plot <- function(msg) {
   ggplot() +
     annotate("text", x = 0, y = 0, label = str_wrap(msg, 60), colour = PBC_GREY, size = 4.2) +
@@ -538,9 +553,49 @@ empty_plot <- function(msg) {
 # 6. UI
 # ---------------------------------------------------------------------------
 
+# Reports the viewport width to the server on connect and on resize. Shiny
+# renders plots server-side as raster images, so it cannot reflow them the way
+# CSS would; the server has to know how wide the screen is to size them.
+viewport_reporter <- tags$script(HTML(sprintf("
+  (function() {
+    function send() {
+      if (window.Shiny && Shiny.setInputValue) {
+        Shiny.setInputValue('viewport_width', window.innerWidth, {priority: 'event'});
+      }
+    }
+    $(document).on('shiny:connected', send);
+    var t = null;
+    window.addEventListener('resize', function() {
+      clearTimeout(t); t = setTimeout(send, 250);
+    });
+    window.addEventListener('orientationchange', function() { setTimeout(send, 300); });
+  })();
+")))
+
+mobile_css <- tags$style(HTML(sprintf("
+  @media (max-width: %dpx) {
+    .card-body { padding: 0.55rem !important; }
+    .card-header { padding: 0.5rem 0.7rem !important; font-size: 0.95rem; }
+    .navbar-brand { font-size: 1rem; }
+    table.dataTable { font-size: 0.78rem; }
+    table.dataTable td, table.dataTable th { padding: 0.35rem 0.4rem !important; }
+    .form-label { margin-bottom: 0.15rem; }
+    .shiny-input-container { margin-bottom: 0.6rem; }
+    .bslib-value-box .value-box-value { font-size: 1.3rem !important; }
+    /* Radio groups wrap instead of overflowing the screen edge */
+    .shiny-options-group { display: flex; flex-wrap: wrap; gap: 0.15rem 0.9rem; }
+  }
+", MOBILE_BREAKPOINT)))
+
 ui <- page_navbar(
   id = "nav",
   title = "Agency Budget & Utilization",
+  header = tags$head(
+    tags$meta(name = "viewport",
+              content = "width=device-width, initial-scale=1, viewport-fit=cover"),
+    viewport_reporter,
+    mobile_css
+  ),
   theme = bs_theme(
     version = 5,
     primary = PBC_NAVY,
@@ -601,7 +656,7 @@ ui <- page_navbar(
 
     div(class = "mt-2"),
     layout_columns(
-      col_widths = c(3, 3, 3, 3),
+      col_widths = breakpoints(sm = c(6, 6, 6, 6), md = c(3, 3, 3, 3)),
       value_box("Latest NEP year",  textOutput("vb_nep"),  showcase = icon("file-lines"),      theme = "primary"),
       value_box("Latest GAA year",  textOutput("vb_gaa"),  showcase = icon("file-signature"),  theme = "secondary"),
       value_box("Latest execution", textOutput("vb_exec"), showcase = icon("gauge-high"),      theme = "info"),
@@ -632,8 +687,8 @@ ui <- page_navbar(
       card_body(
         layout_columns(
           col_widths = c(6, 6),
-          plotOutput("plot_top_dept", height = "1040px"),
-          plotOutput("plot_top_agcy", height = "1040px")
+          plotOutput("plot_top_dept", height = "auto"),
+          plotOutput("plot_top_agcy", height = "auto")
         )
       )
     ),
@@ -658,8 +713,8 @@ ui <- page_navbar(
             "allotment dominate both tails."),
         layout_columns(
           col_widths = c(6, 6),
-          plotOutput("plot_rates_dept", height = "1080px"),
-          plotOutput("plot_rates_agcy", height = "1080px")
+          plotOutput("plot_rates_dept", height = "auto"),
+          plotOutput("plot_rates_agcy", height = "auto")
         )
       )
     ),
@@ -681,7 +736,7 @@ ui <- page_navbar(
             "GAA against NEP within the same fiscal year. Ranking by percent favours ",
             "small agencies where a modest peso augmentation is a large proportion; ",
             "ranking by pesos shows where the money actually moved."),
-        plotOutput("plot_cong", height = "820px")
+        plotOutput("plot_cong", height = "auto")
       )
     )
   ),
@@ -695,10 +750,10 @@ ui <- page_navbar(
       card_header("Trends for the current selection"),
       card_body(
         div(class = "small text-muted mb-2", textOutput("ts_subject")),
-        plotOutput("plot_ts_rates",  height = "340px"),
+        plotOutput("plot_ts_rates",  height = "auto"),
         uiOutput("ui_ts_shares"),
-        plotOutput("plot_ts_chg",    height = "340px"),
-        plotOutput("plot_ts_cong",   height = "340px")
+        plotOutput("plot_ts_chg",    height = "auto"),
+        plotOutput("plot_ts_cong",   height = "auto")
       )
     )
   ),
@@ -727,6 +782,7 @@ ui <- page_navbar(
               "adjustment within the same year. An em-dash (\u2014) means not ",
               "reported; 0.0% is a reported zero."
             ))),
+        uiOutput("mobile_table_note_ind"),
         DTOutput("tbl_ind", height = "100%")
       )
     )
@@ -747,6 +803,7 @@ ui <- page_navbar(
       card_body(
         fillable = TRUE, padding = 8,
         div(class = "small text-muted mb-1", textOutput("unit_note_data")),
+        uiOutput("mobile_table_note_data"),
         DTOutput("tbl_data", height = "100%")
       )
     )
@@ -865,6 +922,30 @@ ui <- page_navbar(
 server <- function(input, output, session) {
 
   # --- Load ---------------------------------------------------------------
+  # --- Responsive state ---------------------------------------------------
+  # Defaults to the wide layout until the browser reports in, so a desktop
+  # session never flashes the narrow layout on load.
+  is_mobile <- reactive({
+    w <- input$viewport_width
+    !is.null(w) && is.numeric(w) && w < MOBILE_BREAKPOINT
+  })
+
+  n_top_budget <- reactive(if (is_mobile()) N_TOP_BUDGET_MOBILE else N_TOP_BUDGET)
+  n_top_rates  <- reactive(if (is_mobile()) N_TOP_RATES_MOBILE  else N_TOP_RATES)
+  n_top_cong   <- reactive(if (is_mobile()) N_TOP_CONG_MOBILE   else N_TOP_CONG)
+
+  # Narrower wrapping and slightly smaller type on a phone: the label column
+  # would otherwise crowd out the bars entirely.
+  lab_width <- reactive(if (is_mobile()) 22 else 34)
+  base_sz   <- reactive(if (is_mobile()) 10.5 else 12)
+  val_sz    <- reactive(if (is_mobile()) 2.7 else 3.3)
+
+  # Rows wrap to more lines when narrow, so each needs more vertical room.
+  h_top   <- function() plot_height(n_top_budget(),     if (is_mobile()) 42 else 30, 160)
+  h_rates <- function() plot_height(n_top_rates() * 2,  if (is_mobile()) 40 else 29, 220)
+  h_cong  <- function() plot_height(n_top_cong()  * 2,  if (is_mobile()) 40 else 23, 190)
+  h_ts    <- function() if (is_mobile()) 290 else 340
+
   # Warm the shared cache. A no-op costing nothing when another session has
   # already loaded it, so only the first visitor after a cold start or an
   # expiry pays the download.
@@ -1018,22 +1099,22 @@ server <- function(input, output, session) {
       filter(year == yr) %>%
       mutate(val = .data[[meas]]) %>%
       filter(!is.na(val), val > 0) %>%
-      slice_max(val, n = N_TOP_BUDGET, with_ties = FALSE)
+      slice_max(val, n = n_top_budget(), with_ties = FALSE)
 
     if (nrow(df) == 0) {
       return(empty_plot(paste0("No ", meas, " data at this level for FY ", yr, ".")))
     }
 
-    df <- df %>% mutate(lab = wrap_lab(agency))
+    df <- df %>% mutate(lab = wrap_lab(agency, width = lab_width()))
 
     ggplot(df, aes(x = reorder(lab, val), y = val / div)) +
       geom_col(fill = if (lvl == "Department") PBC_NAVY else PBC_TEAL, width = 0.75) +
       geom_text(aes(label = fmt_amt(val, div, unit_digits(input$unit))),
-                hjust = -0.12, size = 3.3, colour = PBC_GREY) +
+                hjust = -0.12, size = val_sz(), colour = PBC_GREY) +
       coord_flip(clip = "off") +
       scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.22))) +
       labs(
-        title = paste0("Top ", N_TOP_BUDGET, " ",
+        title = paste0("Top ", n_top_budget(), " ",
                        if (lvl == "Department") "departments" else "agencies",
                        " by ", meas, ", FY ", yr),
         subtitle = if (meas == "NEP") "Proposed appropriations \u2014 not yet enacted"
@@ -1044,8 +1125,8 @@ server <- function(input, output, session) {
       theme_pbc(base_size = 12)
   }
 
-  output$plot_top_dept <- renderPlot(top_budget_plot("Department"))
-  output$plot_top_agcy <- renderPlot(top_budget_plot("Agency"))
+  output$plot_top_dept <- renderPlot(top_budget_plot("Department"), height = h_top)
+  output$plot_top_agcy <- renderPlot(top_budget_plot("Agency"),     height = h_top)
 
   # Utilization is shown as a dot plot rather than bars so that BOTH rates can
   # appear on the same row. The "Order by" selector only decides which rate the
@@ -1057,8 +1138,9 @@ server <- function(input, output, session) {
     floor_thousands <- (input$min_allot %||% 0) * 1e6   # ₱B -> thousands
 
     order_lab <- if (order_by == "obl_rate") "Obligation Rate" else "Disbursement Rate"
-    hi_lab <- paste("Highest", N_TOP_RATES, "\u2014", order_lab)
-    lo_lab <- paste("Lowest",  N_TOP_RATES, "\u2014", order_lab)
+    n_show <- n_top_rates()
+    hi_lab <- paste("Highest", n_show, "\u2014", order_lab)
+    lo_lab <- paste("Lowest",  n_show, "\u2014", order_lab)
 
     df <- budget_ind() %>%
       at_level(lvl) %>%
@@ -1078,10 +1160,10 @@ server <- function(input, output, session) {
     }
 
     both <- bind_rows(
-      df %>% slice_max(ord_val, n = N_TOP_RATES, with_ties = FALSE) %>% mutate(grp = hi_lab),
-      df %>% slice_min(ord_val, n = N_TOP_RATES, with_ties = FALSE) %>% mutate(grp = lo_lab)
+      df %>% slice_max(ord_val, n = n_show, with_ties = FALSE) %>% mutate(grp = hi_lab),
+      df %>% slice_min(ord_val, n = n_show, with_ties = FALSE) %>% mutate(grp = lo_lab)
     ) %>%
-      mutate(lab = wrap_lab(agency))
+      mutate(lab = wrap_lab(agency, width = lab_width()))
 
     # The row-position factor must be built BEFORE reshaping to long: after the
     # pivot each agency occupies two rows, and make.unique would split them onto
@@ -1103,7 +1185,8 @@ server <- function(input, output, session) {
       geom_segment(data = seg,
                    aes(x = ykey, xend = ykey, y = obl_rate, yend = dis_plot),
                    colour = "grey78", linewidth = 1.1, lineend = "round") +
-      geom_point(data = pts, aes(x = ykey, y = val, colour = rate), size = 2.9) +
+      geom_point(data = pts, aes(x = ykey, y = val, colour = rate),
+                 size = if (is_mobile()) 2.4 else 2.9) +
       coord_flip(clip = "off") +
       facet_wrap(~grp, scales = "free_y", ncol = 1) +
       scale_x_discrete(labels = function(x) sub("___.*$", "", x)) +
@@ -1127,12 +1210,12 @@ server <- function(input, output, session) {
                          "continuing or automatic appropriations. Reported zero ",
                          "disbursements are left unplotted \u2014 see Notes. Source: DBM SAAODB.")
       ) +
-      theme_pbc(base_size = 12) +
+      theme_pbc(base_size = base_sz()) +
       theme(panel.grid.major.x = element_line(colour = "grey95"))
   }
 
-  output$plot_rates_dept <- renderPlot(rates_plot("Department"))
-  output$plot_rates_agcy <- renderPlot(rates_plot("Agency"))
+  output$plot_rates_dept <- renderPlot(rates_plot("Department"), height = h_rates)
+  output$plot_rates_agcy <- renderPlot(rates_plot("Agency"),     height = h_rates)
 
   output$plot_cong <- renderPlot({
     req(input$ov_year)
@@ -1160,11 +1243,11 @@ server <- function(input, output, session) {
     }
 
     both <- bind_rows(
-      df %>% slice_max(val, n = N_TOP_CONG, with_ties = FALSE),
-      df %>% slice_min(val, n = N_TOP_CONG, with_ties = FALSE)
+      df %>% slice_max(val, n = n_top_cong(), with_ties = FALSE),
+      df %>% slice_min(val, n = n_top_cong(), with_ties = FALSE)
     ) %>%
       distinct(department, agency, .keep_all = TRUE) %>%
-      mutate(lab = wrap_lab(agency),
+      mutate(lab = wrap_lab(agency, width = lab_width()),
              dir = if_else(val >= 0, "Augmented by Congress", "Cut by Congress"),
              txt = if (metric == "pct") fmt_pct_signed(val)
                    else fmt_amt_signed(val, div, unit_digits(input$unit)),
@@ -1174,7 +1257,7 @@ server <- function(input, output, session) {
       geom_col(width = 0.75) +
       geom_hline(yintercept = 0, colour = PBC_GREY, linewidth = 0.4) +
       geom_text(aes(label = txt, hjust = if_else(plot_val >= 0, -0.12, 1.12)),
-                size = 3.4, colour = PBC_GREY) +
+                size = val_sz(), colour = PBC_GREY) +
       coord_flip(clip = "off") +
       scale_y_continuous(
         labels = if (metric == "pct") percent_format(accuracy = 1) else label_comma(),
@@ -1185,15 +1268,15 @@ server <- function(input, output, session) {
       labs(
         title = paste0("Largest congressional adjustments, FY ", yr, " \u2014 ",
                        if (lvl == "Department") "departments" else "agencies"),
-        subtitle = paste0("GAA against NEP in the same year. Top and bottom ", N_TOP_CONG,
+        subtitle = paste0("GAA against NEP in the same year. Top and bottom ", n_top_cong(),
                           " by ", if (metric == "pct") "percentage change" else "peso change", "."),
         x = NULL,
         y = if (metric == "pct") "GAA vs NEP" else paste0("GAA less NEP (", unit_label(input$unit), ")"),
         caption = paste0("Congress cannot raise the overall total, so augmentations are ",
                          "funded by cuts elsewhere. Source: DBM.")
       ) +
-      theme_pbc(base_size = 12)
-  })
+      theme_pbc(base_size = base_sz())
+  }, height = h_cong)
 
   # =========================================================================
   # Tab 2 — Agency Trends
@@ -1262,8 +1345,8 @@ server <- function(input, output, session) {
       labs(title = "Utilization rates", x = NULL, y = NULL,
            caption = paste0("Both rates use Allotments as the denominator; the gap is ",
                             "the obligated-but-unpaid overhang.")) +
-      theme_pbc()
-  })
+      theme_pbc(base_size = base_sz() + 1)
+  }, height = h_ts)
 
   # Percent shares are suppressed for the aggregate blocks, which are the
   # denominator: every share there is either 100% or undefined.
@@ -1274,7 +1357,7 @@ server <- function(input, output, session) {
           paste0("Percent shares are not shown for ", s$name,
                  " \u2014 it is the denominator, so every share would be 100% or undefined."))
     } else {
-      plotOutput("plot_ts_shares", height = "340px")
+      plotOutput("plot_ts_shares", height = "auto")
     }
   })
 
@@ -1307,8 +1390,8 @@ server <- function(input, output, session) {
       labs(title = "Percent shares", x = NULL, y = NULL,
            caption = paste0("Share of parent department is not plotted here \u2014 see the ",
                             "Key Indicators tab for it.")) +
-      theme_pbc()
-  })
+      theme_pbc(base_size = base_sz() + 1)
+  }, height = h_ts)
 
   output$plot_ts_chg <- renderPlot({
     d <- ts_data()
@@ -1335,8 +1418,8 @@ server <- function(input, output, session) {
       labs(title = "Year-on-year change", x = NULL, y = NULL,
            caption = paste0("For the newest NEP year no GAA exists yet, so only ",
                             "'NEP vs prior GAA' is available.")) +
-      theme_pbc()
-  })
+      theme_pbc(base_size = base_sz() + 1)
+  }, height = h_ts)
 
   output$plot_ts_cong <- renderPlot({
     d <- ts_data()
@@ -1360,8 +1443,8 @@ server <- function(input, output, session) {
       labs(title = "Congressional adjustment: GAA vs NEP, same year", x = NULL, y = NULL,
            caption = paste0("Positive means the enacted budget exceeded the proposal. ",
                             "No bar for the newest NEP year, which has no GAA yet.")) +
-      theme_pbc()
-  })
+      theme_pbc(base_size = base_sz() + 1)
+  }, height = h_ts)
 
   # =========================================================================
   # Tab 3 — Key Indicators (indicators down the rows, years across)
@@ -1412,6 +1495,34 @@ server <- function(input, output, session) {
     disp <- ind_wide_disp()
     disp$Indicator <- as.character(disp$Indicator)
 
+    if (is_mobile()) {
+      # Four identity columns plus twelve years cannot coexist on a phone.
+      # Department and Level are folded away and the remaining identity is
+      # collapsed into one column, leaving a single narrow anchor beside the
+      # years. Frozen columns are dropped: at this width they would consume
+      # the entire screen, and DT's FixedColumns is unreliable on touch.
+      disp <- disp %>%
+        mutate(Row = paste0(Agency, " \u2014 ", Indicator), .before = 1) %>%
+        select(-Department, -Agency, -Level, -Indicator)
+
+      return(datatable(
+        disp,
+        rownames = FALSE,
+        options = list(
+          order = list(),
+          dom = "ftip",
+          pageLength = 15,
+          lengthChange = FALSE,
+          scrollX = TRUE,
+          autoWidth = FALSE,
+          columnDefs = list(
+            list(className = "dt-right", targets = 1:(ncol(disp) - 1)),
+            list(width = "170px", targets = 0)
+          )
+        )
+      ))
+    }
+
     datatable(
       disp,
       rownames = FALSE,
@@ -1458,6 +1569,19 @@ server <- function(input, output, session) {
   # Tab 4 — Data Viewer
   # =========================================================================
 
+  narrow_table_note <- function(cols) {
+    div(class = "small text-muted mb-1 fst-italic",
+        paste0("Narrow screen: ", cols, " are combined into one column and the ",
+               "years scroll sideways. Rotate to landscape or open on a wider ",
+               "screen for the full table."))
+  }
+  output$mobile_table_note_data <- renderUI(
+    if (is_mobile()) narrow_table_note("agency and particular")
+  )
+  output$mobile_table_note_ind <- renderUI(
+    if (is_mobile()) narrow_table_note("agency and indicator")
+  )
+
   output$unit_note_data <- renderText({
     paste0("Amounts in ", unit_label(input$unit),
            ". Source values are in thousands of pesos. Rows follow sheet order. ",
@@ -1484,6 +1608,33 @@ server <- function(input, output, session) {
     disp <- df
     for (cl in yr_cols) disp[[cl]] <- fmt_amt(disp[[cl]], div, dg)
     names(disp)[1:4] <- c("Department", "Agency", "Level", "Particular")
+
+    if (is_mobile()) {
+      # Same treatment as the indicators table: one identity column, no frozen
+      # columns, ordinary paging instead of a 100vh scroll body. Mobile
+      # browsers resize the viewport as their chrome hides and reappears, so a
+      # vh-based table height jumps around while the reader scrolls.
+      disp <- disp %>%
+        mutate(Row = paste0(Agency, " \u2014 ", Particular), .before = 1) %>%
+        select(-Department, -Agency, -Level, -Particular)
+
+      return(datatable(
+        disp,
+        rownames = FALSE,
+        options = list(
+          order = list(),
+          dom = "ftip",
+          pageLength = 15,
+          lengthChange = FALSE,
+          scrollX = TRUE,
+          autoWidth = FALSE,
+          columnDefs = list(
+            list(className = "dt-right", targets = 1:(ncol(disp) - 1)),
+            list(width = "170px", targets = 0)
+          )
+        )
+      ))
+    }
 
     datatable(
       disp,
