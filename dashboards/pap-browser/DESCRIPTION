@@ -1,0 +1,19 @@
+Package: phBudgetPAPBrowser
+Title: Philippine Budget P/A/P Browser
+Version: 0.1.0
+Description: Shiny dashboard for browsing Program/Activity/Project level
+    figures from the Philippine National Expenditure Program and General
+    Appropriations Act, FY2020-FY2027.
+Imports:
+    shiny,
+    bslib,
+    DT,
+    dplyr,
+    tidyr,
+    stringr,
+    purrr,
+    tibble,
+    readxl,
+    readr,
+    ggplot2,
+    scales
