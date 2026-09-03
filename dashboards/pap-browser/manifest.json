@@ -2321,6 +2321,9 @@
       "checksum": "17f847933966777e7397760158d3dc05"
     },
     "app.R": {
+      "checksum": "fd350a674046fbcc43972fb9422162a0"
+    },
+    "app_bak.R": {
       "checksum": "32fd3df32e39112d153172b98762b6d0"
     },
     "DESCRIPTION": {
@@ -2333,13 +2336,13 @@
       "checksum": "84743b9436300af66ef04861031b6196"
     },
     "test_future.R": {
-      "checksum": "310ef0201e2e16001b7312d7a94432cf"
+      "checksum": "28b8040b2dad222cf35e76e05cbaa222"
     },
     "test_logic.R": {
       "checksum": "8fa61f194f97bb976913e9fc2f0159bf"
     },
     "test_server.R": {
-      "checksum": "1ae8f01cc493cb3d5b7b47613ce4b3b8"
+      "checksum": "e67c89cb2390f894da2bcf5c9bd7ca39"
     }
   },
   "users": null

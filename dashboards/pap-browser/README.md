@@ -121,20 +121,66 @@ worth of rows. Every label carries its department abbreviation
 ("Office of the Secretary — DOE"), which disambiguates the duplicates and lets
 you search by department in the agency box.
 
+### Program tier
+
+The GAA sorts every program into three tiers, and the first digit of
+`PREXC_PROG` says which: `1` is General Administration and Support, `2` is
+Support to Operations, `3` and up is Operations. The tier is read from the code
+rather than the label, which is what makes it hold for every agency — tier 1 is
+always `1000` and tier 2 always `2000`, whatever wording an agency uses.
+
+GAS and STO are the running cost of an agency rather than the service it
+delivers, so each tier is a toggle. All three are on by default, keeping the
+opening view the whole data set; untick GAS and STO to see only the programs
+that deliver something. Across the current workbook that drops 2,759 P/A/Ps to
+2,116.
+
+### P/A/P detail versus Program totals
+
+The **Show** toggle switches the table between the two grains. P/A/P detail is
+the default. Program totals roll each agency's P/A/Ps up into its headline
+programs — 2,759 rows become 592 — and the P/A/P column falls away with them,
+so the frozen identity block shrinks from four columns to three and widens to
+suit.
+
+The roll-up cannot use a plain `sum(na.rm = TRUE)`: a program whose every P/A/P
+is blank for a year would come out as a real zero, which is exactly the
+distinction this dashboard exists to preserve. It uses an all-or-nothing guard
+instead, so a blank year stays blank. Totals are identical at either grain, and
+the test suite checks that against a hand roll-up of one agency.
+
+The trend chart is unaffected by the toggle: it sums the same rows either way.
+
 ### The table
 
-**1. Browse** — the table and nothing else. There is no summary strip and no
-value boxes above it: the figures are the point, and every 90px of chrome is a
-row of data not shown. The table body fills the viewport and uses DT's
+**1. Browse** — the table and nothing else. There is no summary strip, no value
+boxes and no DataTables search box above it: the figures are the point, and
+every row of chrome is a row of data not shown. The sidebar already searches
+PROGRAM and P/A/P separately, which is more use than one box searching every
+column at once. The table body fills the viewport and uses DT's
 **Scroller** extension, so only the visible window is rendered rather than all
 2,759 rows. A CSV of whatever is currently filtered downloads from the card
 header as `ph-pap-browser-data_YYYY-MM-DD.csv`.
 
-The four identity columns — Department, Agency, Program, P/A/P — are held to
-about a third of the table by explicit pixel widths (`ID_COL_WIDTHS`, totalling
-roughly 500px) and wrap rather than truncate, in a smaller face than the
+The identity columns — Department, Agency, Program, and P/A/P at the detail
+grain — are held to about a third of the table by explicit pixel widths
+(`ID_WIDTHS_BY_GRAIN`) and wrap rather than truncate, in a smaller face than the
 figures. Left to size themselves they take half the table and the numbers are
 pushed off-screen on open.
+
+**Both grains use the same total identity width (440px)** even though one has
+four columns and the other three, so the figure columns begin at the same point
+and line up when you switch views. Figure columns carry a fixed width of their
+own (`AMT_COL_WIDTH`); without it DT apportions whatever is spare, and the first
+figure column collapsed whenever the identity block lost a column.
+
+The stylesheet needs to know how many leading columns are identity, and that
+count changes with the grain. A single rule sized to the wider grain styled the
+first *figure* column as an identity column in the Program view — wrapping and
+shrinking its header. Each grain now tags the table (`pap-grain-pap`,
+`pap-grain-prog`) and gets its own rule. Figure headers wrap to two lines so a
+long series label does not squeeze the column; the figures themselves never
+wrap.
 
 **All four are frozen**, not two: freezing Department and Agency alone would
 scroll Program and P/A/P out of view, and those are the two a reader needs to
@@ -191,6 +237,8 @@ then decide how to show it.
 | **Search PROGRAM** | Free-text over the 4-digit headline programs. |
 | **Search P/A/P** | Free-text over the granular P/A/P labels. |
 | **P/A/P type** | Regular Activity, Locally-Funded Project, Foreign-Assisted Project. |
+| **Program tier** | Operations, Support to Operations, General Administration and Support. All on by default; untick the last two to strip out overhead. |
+| **Show** | P/A/P detail, or Program totals. |
 | **Document** | GAA, NEP, or both. Defaults to both. |
 | **Fiscal years** | Any subset of FY2020–FY2027. Defaults to all. |
 | **Expense class** | Total, PS, MOOE, FE, CO. Defaults to Total only. |

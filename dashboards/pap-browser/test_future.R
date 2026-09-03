@@ -105,6 +105,9 @@ testServer(shinyAppDir("."), {
   session$setInputs(dept = "", agency = "", doc = "BOTH", years = p$years,
                     classes = "TOTAL", unit = "millions",
                     q_program = "", q_pap = "Synthetic New Line",
+                    grain = "pap",
+                    tier = c("Operations", "Support to Operations",
+                             "General Administration and Support"),
                     pap_type = c("Regular Activity", "Locally-Funded Project",
                                  "Foreign-Assisted Project"))
   chk("new P/A/P is findable", nrow(filtered()) == 1, nrow(filtered()))

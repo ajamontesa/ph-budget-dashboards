@@ -154,52 +154,6 @@ TYPE_LFP     <- "Locally-Funded Project"
 TYPE_FAP     <- "Foreign-Assisted Project"
 TYPE_CHOICES <- c(TYPE_REGULAR, TYPE_LFP, TYPE_FAP)
 
-# --- Program tier ----------------------------------------------------------
-# The first digit of PREXC_PROG places a program in the GAA's own three tiers:
-# 1 = General Administration and Support, 2 = Support to Operations,
-# 3 and up = Operations. Taken from the code rather than the label, which is
-# what makes it hold for every agency: tier 1 is always "1000" and tier 2
-# always "2000", whatever wording the agency uses.
-#
-# Overhead is worth being able to set aside -- GAS and STO are the running
-# cost of the agency, not the service it delivers -- so each tier is a toggle.
-TIER_GAS <- "General Administration and Support"
-TIER_STO <- "Support to Operations"
-TIER_OPS <- "Operations"
-TIER_CHOICES <- c(TIER_OPS, TIER_STO, TIER_GAS)
-
-prexc_tier <- function(prog) {
-  case_when(str_sub(prog, 1, 1) == "1" ~ TIER_GAS,
-            str_sub(prog, 1, 1) == "2" ~ TIER_STO,
-            TRUE                       ~ TIER_OPS)
-}
-
-# --- Table grain -----------------------------------------------------------
-# P/A/P is the default. Program rolls the P/A/Ps up to their headline program,
-# which is the level most readers start from.
-GRAIN_PAP  <- "pap"
-GRAIN_PROG <- "program"
-GRAIN_CHOICES <- c("P/A/P detail" = GRAIN_PAP, "Program totals" = GRAIN_PROG)
-
-# Identity columns by grain: the program roll-up has no P/A/P column, so the
-# frozen block and its widths shrink with it.
-ID_COLS_BY_GRAIN <- list(
-  pap     = c("Department", "Agency", "Program", "P/A/P"),
-  program = c("Department", "Agency", "Program")
-)
-# Both identity blocks total the same width, so the figure columns begin at the
-# same point and line up between the two views. Trimmed from the earlier
-# figures to give the numbers more room.
-ID_WIDTHS_BY_GRAIN <- list(
-  pap     = c("90px", "100px", "110px", "140px"),   # 440px
-  program = c("110px", "125px", "205px")            # 440px
-)
-
-# Every figure column is the same fixed width in both views. Left to itself DT
-# apportions whatever is spare, which is what let the first figure column
-# collapse when the identity block lost a column.
-AMT_COL_WIDTH <- "94px"
-
 ID_COLS <- c("DEPARTMENT", "UACS_DPT_DSC", "AGENCY", "UACS_AGY_DSC",
              "PREXC_PROG", "PROGRAM", "PREXC_SUBPROG", "PAP")
 
@@ -219,13 +173,14 @@ CACHE_RETRY_SECONDS <- 120
 # shrinks. Matches the breakpoint used by the agency dashboard.
 MOBILE_BREAKPOINT <- 768
 
-# Widest identity block, used only to size the CSS selectors. The block itself
-# is chosen per grain from ID_COLS_BY_GRAIN. Every identity column is frozen
-# and sized: freezing a leading pair would scroll Program and P/A/P out of
-# view, which are the two a reader needs while comparing years.
-N_ID_PAP  <- length(ID_COLS_BY_GRAIN$pap)
-N_ID_PROG <- length(ID_COLS_BY_GRAIN$program)
-N_ID_COLS <- max(N_ID_PAP, N_ID_PROG)
+# Identity columns shown on a wide screen: Department, Agency, Program, P/A/P.
+# All four are frozen, so all four must be sized: freezing two of four leaves
+# the pair that carries the actual detail scrolling away.
+N_ID_COLS <- 4
+
+# Pixel widths for those columns, in order. They total roughly 500px, which is
+# about a third of a 1440px viewport, leaving two thirds for the figures.
+ID_COL_WIDTHS <- c("105px", "115px", "125px", "155px")
 
 # House palette
 PBC_NAVY  <- "#1B4965"
@@ -365,7 +320,6 @@ tidy_pap <- function(raw) {
       # sequence; PREXC codes order the P/A/Ps within an agency. The codes are
       # ordering keys only and are not shown in the table.
       AGENCY_KEY = str_c(DEPARTMENT, "|", AGENCY),
-      PROG_TIER  = prexc_tier(PREXC_PROG),
       SORT_KEY = str_c(DEPARTMENT, AGENCY, PREXC_PROG,
                        str_pad(PREXC_SUBPROG, 12, "right", "0"))
     ) %>%
@@ -390,31 +344,6 @@ tidy_pap <- function(raw) {
   dup_keys <- dat %>%
     count(DEPARTMENT, AGENCY, PREXC_SUBPROG, name = "n") %>%
     filter(n > 1) %>% nrow()
-
-  # One program CODE can carry two different PROGRAM labels inside one agency.
-  # Two cases exist today: the National Museum's program 3101 has its 40
-  # locally-funded rows labeled "Locally-Funded Projects" rather than "Museums
-  # Program", and one of DOH-OSEC's 26 rows under 3103 says "Health Systems
-  # Strengthening Program" where the other 25 say "Public Health Program".
-  #
-  # The code is the identity, so the roll-up groups on it and shows the label
-  # used by the most P/A/Ps. The collisions are counted and reported, because
-  # they are encoding slips worth fixing at source rather than facts about the
-  # budget.
-  prog_labels <- dat %>%
-    count(DEPARTMENT, AGENCY, PREXC_PROG, PROGRAM, name = "n") %>%
-    arrange(DEPARTMENT, AGENCY, PREXC_PROG, desc(n))
-
-  prog_canon <- prog_labels %>%
-    distinct(DEPARTMENT, AGENCY, PREXC_PROG, .keep_all = TRUE) %>%
-    select(DEPARTMENT, AGENCY, PREXC_PROG, PROGRAM_CANON = PROGRAM)
-
-  prog_label_clashes <- prog_labels %>%
-    count(DEPARTMENT, AGENCY, PREXC_PROG, name = "k") %>%
-    filter(k > 1) %>% nrow()
-
-  dat <- dat %>%
-    left_join(prog_canon, by = c("DEPARTMENT", "AGENCY", "PREXC_PROG"))
 
   unknown_classes <- setdiff(classes, names(EXP_LABELS))
   unknown_docs    <- setdiff(docs, DOC_ORDER_COLS)
@@ -467,7 +396,6 @@ tidy_pap <- function(raw) {
     sheets_read     = attr(raw, "sheets_read") %||% character(0),
     sheets_pending  = attr(raw, "sheets_pending") %||% list(),
     dup_keys        = dup_keys,
-    prog_label_clashes = prog_label_clashes,
     unknown_classes = unknown_classes,
     unknown_docs    = unknown_docs
   )
@@ -546,29 +474,20 @@ viewport_reporter <- tags$script(HTML("
 app_css <- tags$style(HTML(sprintf("
   .card-body { padding: 0.6rem 0.75rem; }
 
+  /* The four identity columns are held to roughly a third of the table so the
+     figures are visible on open. They wrap rather than truncate -- several
+     P/A/Ps differ only in their tail -- and carry a smaller face than the
+     numbers, which are what a reader is actually comparing.
+     The selectors are doubled because FixedColumns clones the frozen block
+     into its own table, and the clone needs the same widths or the two halves
+     drift apart as the body scrolls. */
   table.dataTable thead th,
   table.dataTable tbody td {
     font-size: 0.80rem;
     padding: 0.28rem 0.45rem;
   }
-
-  /* Identity columns wrap rather than truncate -- several P/A/Ps differ only
-     in their tail -- and carry a smaller face than the numbers, which are what
-     a reader is actually comparing.
-
-     The count differs by grain: four columns at P/A/P level, three at Program
-     level. A single nth-child rule sized to the wider grain would style the
-     first FIGURE column as an identity column in the Program view, wrapping and
-     shrinking its header. So the table carries a grain class and each grain
-     gets its own rule.
-
-     FixedColumns clones the frozen block into its own table. That clone holds
-     only identity columns whichever grain is showing, so it can be styled
-     wholesale without counting. */
-  .pap-grain-pap  thead th:nth-child(-n+%d),
-  .pap-grain-pap  tbody td:nth-child(-n+%d),
-  .pap-grain-prog thead th:nth-child(-n+%d),
-  .pap-grain-prog tbody td:nth-child(-n+%d),
+  table.dataTable thead th:nth-child(-n+%d),
+  table.dataTable tbody td:nth-child(-n+%d),
   .DTFC_LeftBodyWrapper table tbody td,
   .DTFC_LeftHeadWrapper table thead th {
     white-space: normal !important;
@@ -577,17 +496,7 @@ app_css <- tags$style(HTML(sprintf("
     line-height: 1.2;
     vertical-align: top;
   }
-
-  /* Figures never wrap. Their headers do, so a long series label sits on two
-     lines instead of squeezing the column. */
-  .pap-grain-pap  tbody td:nth-child(n+%d),
-  .pap-grain-prog tbody td:nth-child(n+%d) { white-space: nowrap; }
-  .pap-grain-pap  thead th:nth-child(n+%d),
-  .pap-grain-prog thead th:nth-child(n+%d) {
-    white-space: normal;
-    line-height: 1.15;
-    vertical-align: bottom;
-  }
+  table.dataTable tbody td:nth-child(n+%d) { white-space: nowrap; }
 
   /* Selection recap under the trend chart. */
   .pap-recap {
@@ -628,9 +537,8 @@ app_css <- tags$style(HTML(sprintf("
   }
 ",
    # sprintf is positional: these must stay in the order the placeholders
-   # appear above -- eight column counts, four colors, then the breakpoint.
-   N_ID_PAP, N_ID_PAP, N_ID_PROG, N_ID_PROG,
-   N_ID_PAP + 1, N_ID_PROG + 1, N_ID_PAP + 1, N_ID_PROG + 1,
+   # appear above -- three column counts, four colors, then the breakpoint.
+   N_ID_COLS, N_ID_COLS, N_ID_COLS + 1,
    PBC_NAVY, PBC_GREY, PBC_GREY, PBC_NAVY,
    MOBILE_BREAKPOINT)))
 
@@ -685,20 +593,11 @@ ui <- page_navbar(
     checkboxGroupInput("pap_type", "P/A/P type",
                        choices = TYPE_CHOICES, selected = TYPE_CHOICES),
 
-    # Overhead on or off. Both are on by default, so the opening view is still
-    # the whole data set; unticking them leaves only the programs that deliver
-    # a service.
-    checkboxGroupInput("tier", "Program tier",
-                       choices = TIER_CHOICES, selected = TIER_CHOICES),
-
     hr(),
 
     # -- how to show it ----------------------------------------------------
     # Built from the document types found in the workbook, so a third one
     # would appear here on its own.
-    radioButtons("grain", "Show",
-                 choices = GRAIN_CHOICES, selected = GRAIN_PAP, inline = TRUE),
-
     radioButtons(
       "doc", "Document",
       choices = c(
@@ -838,12 +737,6 @@ server <- function(input, output, session) {
       d <- d[0, ]
     }
 
-    if (length(input$tier)) {
-      d <- d %>% filter(PROG_TIER %in% input$tier)
-    } else {
-      d <- d[0, ]
-    }
-
     q1 <- str_trim(input$q_program %||% "")
     if (nzchar(q1)) d <- d %>% filter(str_detect(PROGRAM, fixed(q1, ignore_case = TRUE)))
 
@@ -856,57 +749,19 @@ server <- function(input, output, session) {
   # -- table ----------------------------------------------------------------
   # PREXC codes are ordering keys, not content: they are used to sort and are
   # then dropped, so the reader sees names rather than numbers.
-
-  # Blanks are not zeroes, so a roll-up cannot simply sum(na.rm = TRUE): a
-  # program whose every P/A/P is blank for a year would come out as a real 0.
-  sum_or_na <- function(x) if (all(is.na(x))) NA_real_ else sum(x, na.rm = TRUE)
-
-  # Rows at the requested grain, before any unit scaling or column renaming.
-  # Program totals roll the P/A/Ps up to their headline program; the P/A/P and
-  # type columns fall away with them.
-  grained <- reactive({
-    d <- filtered()
-    cols <- shown_cols()
-    if (identical(input$grain, GRAIN_PROG)) {
-      # Grouped on PREXC_PROG, not on the label: one program code is one row
-      # even where the workbook spells its name two ways.
-      d %>%
-        group_by(DEPARTMENT, UACS_DPT_DSC, AGENCY, UACS_AGY_DSC,
-                 PREXC_PROG, PROGRAM = PROGRAM_CANON) %>%
-        summarize(across(all_of(cols), sum_or_na),
-                  N_PAPS = n(), .groups = "drop") %>%
-        arrange(DEPARTMENT, AGENCY, PREXC_PROG)
-    } else {
-      d
-    }
-  })
-
-  id_cols   <- reactive(ID_COLS_BY_GRAIN[[input$grain %||% GRAIN_PAP]])
-  id_widths <- reactive(ID_WIDTHS_BY_GRAIN[[input$grain %||% GRAIN_PAP]])
-
   table_data <- reactive({
     cols <- shown_cols()
     div  <- unit_divisor(input$unit)
-    prog_grain <- identical(input$grain, GRAIN_PROG)
 
-    d <- grained()
+    d <- filtered()
 
     if (is_mobile()) {
-      # Identity collapses into one column on a phone: several identity columns
+      # Identity collapses into one column on a phone: four identity columns
       # plus a year scroll leaves no room for the figures.
       out <- d %>%
-        transmute(IDENTITY = if (prog_grain)
-                    str_c(UACS_AGY_DSC, " \u2014 ", PROGRAM)
-                  else
-                    str_c(UACS_AGY_DSC, " \u2014 ", PAP),
+        transmute(IDENTITY = str_c(UACS_AGY_DSC, " \u2014 ", PAP),
                   across(all_of(cols), ~ .x / div))
-      names(out)[1] <- if (prog_grain) "Agency \u2014 Program" else "Agency \u2014 P/A/P"
-    } else if (prog_grain) {
-      out <- d %>%
-        transmute(Department = UACS_DPT_DSC,
-                  Agency     = UACS_AGY_DSC,
-                  Program    = PROGRAM,
-                  across(all_of(cols), ~ .x / div))
+      names(out)[1] <- "Agency \u2014 P/A/P"
     } else {
       # PAP_TYPE is a filter, not a column: it is one of three repeated values,
       # so it costs width without telling a reader anything the P/A/P label
@@ -925,11 +780,6 @@ server <- function(input, output, session) {
     cols <- shown_cols()
     d <- table_data()
     n_id <- ncol(d) - length(cols)
-    widths <- if (is_mobile()) character(0) else id_widths()
-    # Tells the stylesheet how many leading columns are identity, so the first
-    # figure column is not styled as one when the grain changes.
-    grain_class <- if (identical(input$grain, GRAIN_PROG))
-      "pap-grain-prog" else "pap-grain-pap"
     names(d) <- c(names(d)[seq_len(n_id)], vapply(cols, amt_header, character(1)))
 
     mob <- is_mobile()
@@ -944,9 +794,7 @@ server <- function(input, output, session) {
         selection = "none",
         options = list(
           order = list(),
-          # No "f": DT's own search box is redundant next to the sidebar
-          # searches, and dropping it returns a row of vertical space.
-          dom = "tip",
+          dom = "ftip",
           pageLength = 15,
           lengthChange = FALSE,
           scrollX = TRUE,
@@ -970,13 +818,11 @@ server <- function(input, output, session) {
         d,
         rownames = FALSE,
         selection = "none",
-        class = paste("compact stripe hover", grain_class),
+        class = "compact stripe hover",
         extensions = "FixedColumns",
         options = list(
           order = list(),
-          # No "f": DT's own search box is redundant next to the sidebar
-          # searches, and dropping it returns a row of vertical space.
-          dom = "tip",
+          dom = "ftip",
           paging = TRUE,
           pageLength = 100,
           lengthChange = FALSE,
@@ -987,13 +833,13 @@ server <- function(input, output, session) {
           # All four identity columns are frozen. Freezing two of four would
           # scroll Program and P/A/P out of view, which are the two a reader
           # needs to keep sight of while comparing years.
-          fixedColumns = list(leftColumns = n_id),
+          fixedColumns = list(leftColumns = N_ID_COLS),
           columnDefs = c(
-            lapply(seq_len(n_id) - 1, function(i) {
-              list(width = widths[i + 1], targets = i)
+            lapply(seq_len(N_ID_COLS) - 1, function(i) {
+              list(width = ID_COL_WIDTHS[i + 1], targets = i)
             }),
-            list(list(className = "dt-right", width = AMT_COL_WIDTH,
-                      targets = seq(n_id, ncol(d) - 1)))
+            list(list(className = "dt-right",
+                      targets = seq(N_ID_COLS, ncol(d) - 1)))
           )
         )
       )
@@ -1100,17 +946,6 @@ server <- function(input, output, session) {
                               else esc(str_c(types, collapse = ", "))))
     }
 
-    tiers <- input$tier %||% character(0)
-    if (!setequal(tiers, TIER_CHOICES)) {
-      dropped <- setdiff(TIER_CHOICES, tiers)
-      bits <- c(bits, sprintf("Program tier: <b>%s</b>%s",
-                              if (!length(tiers)) "none selected"
-                              else esc(str_c(tiers, collapse = ", ")),
-                              if (length(dropped) && length(tiers))
-                                sprintf(" (excluding %s)", esc(str_c(dropped, collapse = ", ")))
-                              else ""))
-    }
-
     if (!setequal(yrs, p$years)) {
       bits <- c(bits, sprintf("Fiscal years: <b>%s</b> (of %s\u2013%s)",
                               esc(str_c(range(yrs), collapse = "\u2013")),
@@ -1123,8 +958,6 @@ server <- function(input, output, session) {
     # Always stated, because they change what the bars mean rather than which
     # rows are counted.
     always <- c(
-      sprintf("Table is at <b>%s</b> level",
-              if (identical(input$grain, GRAIN_PROG)) "Program" else "P/A/P"),
       sprintf("Bars are the <b>%s</b> column, in <b>%s</b>",
               if (identical(cls, "TOTAL")) "Total"
               else str_c(vapply(cls, exp_short, character(1)), collapse = " + "),
@@ -1134,26 +967,20 @@ server <- function(input, output, session) {
     n_all <- p$n_rows
     n_now <- nrow(d)
     n_agy <- n_distinct(str_c(d$DEPARTMENT, d$AGENCY))
-    n_shown <- nrow(grained())
-    unit_word <- if (identical(input$grain, GRAIN_PROG)) "programs" else "P/A/Ps"
 
     head_txt <- if (!length(bits)) {
       sprintf(paste0("<span class='recap-all'>No filters applied \u2014 the bars ",
                      "are the whole data set: all <b>%s</b> labeled P/A/Ps ",
-                     "across <b>%s</b> agencies%s.</span>"),
-              comma(n_all), comma(p$n_agencies),
-              if (identical(input$grain, GRAIN_PROG))
-                sprintf(", rolled up into <b>%s</b> programs", comma(n_shown)) else "")
+                     "across <b>%s</b> agencies.</span>"),
+              comma(n_all), comma(p$n_agencies))
     } else if (n_now == 0) {
       "<b>Nothing matches the current filters</b>, so there is nothing to plot."
     } else {
       sprintf(paste0("Showing <b>%s</b> of %s labeled P/A/Ps (%s%%), ",
-                     "across <b>%s</b> of %s agencies%s."),
+                     "across <b>%s</b> of %s agencies."),
               comma(n_now), comma(n_all),
               formatC(100 * n_now / n_all, format = "f", digits = 1),
-              comma(n_agy), comma(p$n_agencies),
-              if (identical(input$grain, GRAIN_PROG))
-                sprintf(", rolled up into <b>%s</b> %s", comma(n_shown), unit_word) else "")
+              comma(n_agy), comma(p$n_agencies))
     }
 
     tagList(
@@ -1187,13 +1014,6 @@ server <- function(input, output, session) {
         class = "text-danger",
         sprintf("%s duplicated P/A/P key(s) across sheets \u2014 figures may be double counted.",
                 comma(p$dup_keys))
-      )))
-    }
-    if (p$prog_label_clashes > 0) {
-      notes <- c(notes, list(div(
-        class = "text-warning",
-        sprintf("%s program code(s) carry more than one PROGRAM label; the roll-up uses the most common one.",
-                comma(p$prog_label_clashes))
       )))
     }
     if (length(p$unknown_classes)) {
