@@ -15,8 +15,8 @@ The two are complements, not overlapping views. The agency dashboard answers
 "how much did this agency get, and how much of it did they actually spend"; the
 P/A/P dashboard answers "what is inside that agency's budget line". Only the
 agency dashboard carries execution, and only it covers the whole budget — the
-P/A/P dataset does not yet include OEOs or SUCs, so its departmental totals are
-not national totals.
+P/A/P dataset does not yet include SUCs, so its departmental totals are not
+national totals.
 
 Each dashboard is a self-contained directory with its own `app.R`,
 `manifest.json` and `README.md`, published to Posit Connect Cloud as separate

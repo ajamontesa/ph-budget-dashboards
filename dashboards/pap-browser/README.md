@@ -91,17 +91,18 @@ Both print `N passed, 0 failed`.
 
 `test_server.R` drives the server through `shiny::testServer` — filters,
 toggles, unit conversion and the empty-selection edge cases — without needing a
-browser. It asserts specific row counts (2,759 P/A/Ps; 19 DOE rows; 88
+browser. It asserts specific row counts (3,350 P/A/Ps; 19 DOE rows; 91
 foreign-assisted) and the DOE NEP 2027 figure above.
 
-Those counts **will** change as OEOs, SUCs and the rest of PSHS are encoded.
+Those counts **will** change as SUCs and the last unlabeled P/A/Ps are encoded.
 Update the expected numbers when that happens rather than deleting the
 assertions — they are what catches a workbook that has silently lost rows.
 
 `test_future.R` is the complement. It builds a synthetic workbook a version or
 two ahead — an extra fiscal year, a new expense class, a new P/A/P row, and the
 `SUCs` sheet with its labels filled in — and asserts the app absorbs all of it
-without a code change. Run it after any change to the loader.
+without a code change. Run it after any change to the loader. The OEO update
+was exactly the case it models, and needed no edit to the app.
 
 ## What the app does
 
@@ -109,7 +110,7 @@ Three tabs.
 
 ### Finding an agency
 
-The agency box holds all 180 agencies and is searchable, so a department does
+The agency box holds all 214 agencies and is searchable, so a department does
 not have to be chosen first. Picking one narrows the list; it is a convenience,
 not a precondition, and an agency already chosen survives a department change if
 it still belongs there.
@@ -132,14 +133,14 @@ always `1000` and tier 2 always `2000`, whatever wording an agency uses.
 GAS and STO are the running cost of an agency rather than the service it
 delivers, so each tier is a toggle. All three are on by default, keeping the
 opening view the whole data set; untick GAS and STO to see only the programs
-that deliver something. Across the current workbook that drops 2,759 P/A/Ps to
-2,116.
+that deliver something. Across the current workbook that drops 3,350 P/A/Ps to
+2,623.
 
 ### P/A/P detail versus Program totals
 
 The **Show** toggle switches the table between the two grains. P/A/P detail is
 the default. Program totals roll each agency's P/A/Ps up into its headline
-programs — 2,759 rows become 592 — and the P/A/P column falls away with them,
+programs — 3,350 rows become 691 — and the P/A/P column falls away with them,
 so the frozen identity block shrinks from four columns to three and widens to
 suit.
 
@@ -159,7 +160,7 @@ every row of chrome is a row of data not shown. The sidebar already searches
 PROGRAM and P/A/P separately, which is more use than one box searching every
 column at once. The table body fills the viewport and uses DT's
 **Scroller** extension, so only the visible window is rendered rather than all
-2,759 rows. A CSV of whatever is currently filtered downloads from the card
+3,350 rows. A CSV of whatever is currently filtered downloads from the card
 header as `ph-pap-browser-data_YYYY-MM-DD.csv`.
 
 The identity columns — Department, Agency, Program, and P/A/P at the detail
@@ -167,6 +168,12 @@ grain — are held to about a third of the table by explicit pixel widths
 (`ID_WIDTHS_BY_GRAIN`) and wrap rather than truncate, in a smaller face than the
 figures. Left to size themselves they take half the table and the numbers are
 pushed off-screen on open.
+
+The roll-up groups on **codes only** — department, agency, program — never on
+the display names, and takes the names from the most recent row. An agency
+renamed mid-series carries two spellings on one code (the Office of the
+Presidential Adviser on the Peace Process became *...on Peace, Reconciliation
+and Unity*), and grouping on the name split its program into two half-rows.
 
 **Both grains use the same total identity width (440px)** even though one has
 four columns and the other three, so the figure columns begin at the same point
@@ -215,7 +222,7 @@ in any case.
 Beneath the chart is a **recap of the current selection**. With nothing applied
 it says so plainly — the bars are the whole data set, all labeled P/A/Ps across
 every agency. Once anything is filtered it reports how much of the data is in
-view ("Showing 100 of 2,759 labeled P/A/Ps (3.6%), across 7 of 179 agencies")
+view ("Showing 100 of 3,350 labeled P/A/Ps (3.0%), across 7 of 214 agencies")
 and lists each filter in force. It always names the expense class and display
 unit, since those change what the bars mean rather than which rows are counted.
 
@@ -264,8 +271,8 @@ So `Search PROGRAM` for "health" finds whole programs; `Search P/A/P` for
   Where every expense column for a year is zero, that year carries no information
   for that P/A/P and is shown blank rather than as a real zero. The year group
   spans **both** documents, so NEP and GAA for a year are blanked together.
-- **Unlabeled and empty rows are excluded.** 106 P/A/Ps have no label yet — most
-  of them Philippine Science High School System — and a further 33 rows are zero
+- **Unlabeled and empty rows are excluded.** 7 P/A/Ps have no label yet — the
+  last of the Philippine Commission on Women — and a further 33 rows are zero
   in every column of every year. Removing them changes no series total. The
   counts are reported on the Notes tab so a reader can see what was dropped.
 - **Statutory order is preserved**, not alphabetical. `DEPARTMENT` and `AGENCY`
@@ -309,18 +316,23 @@ TTL, or immediately via **Refresh from source**.
 | New document type beyond NEP/GAA | Appears as a filter, is ordered after the known two, and gets a fallback fill in the trend. |
 
 **Sheets are detected, not listed.** Any sheet carrying all eight identifier
-columns and at least one `_EXP_` column is read and bound. The `SUCs` and `OEOs`
-sheets already exist in the workbook but are missing `PROGRAM` and `PAP`, so they
-are skipped today — and will be picked up automatically on the day those labels
-are filled in. The sidebar names them as awaiting labels rather than ignoring
-them silently. `SHEET_IGNORE` holds the handful of template and scratch sheets to
-skip by name.
+columns and at least one `_EXP_` column is read and bound. The `SUCs` sheet
+already exists in the workbook but is missing `PROGRAM` and `PAP`, so it is
+skipped today — and will be picked up automatically on the day those labels are
+filled in. The sidebar names it as awaiting labels rather than ignoring it
+silently. `SHEET_IGNORE` holds the handful of template and scratch sheets to skip
+by name.
+
+Other Executive Offices are the proof this works. They were once their own
+pending sheet; they are now labeled and folded into `NGAs`, and the dashboard
+absorbed both moves without a line of code changing — agency count 179 → 214,
+rows 2,759 → 3,350.
 
 Three things are checked on every read and reported in the sidebar rather than
 swallowed: **duplicate P/A/P keys across sheets** (which would double count),
 **expense classes with no label**, and **unrecognized document types**.
 
-### One thing to watch when SUCs and OEOs land
+### One thing to watch when SUCs land
 
 The `SUCs` sheet currently carries **295 codes that bear two agency names
 apiece** — for example department 08 / agency 004 is both "Philippine State
@@ -329,16 +341,20 @@ Those are renames, not duplicates, and the code is the identity: the picker show
 one entry per code, labeled with the name still in use in the most recent
 document, and the table gives one continuous series across the rename.
 
-But the duplicate-key count in the sidebar will jump when those sheets go live,
+But the duplicate-key count in the sidebar will jump when that sheet goes live,
 and it is worth reading it then. A rename is fine; the same P/A/P appearing in
 two different sheets is not, and the counter cannot tell them apart on its own.
 
 ## Coverage
 
-**Not yet included:** Other Executive Offices (OEOs) and State Universities and
-Colleges (SUCs). Philippine Science High School System under DOST is incomplete.
+**Not yet included:** State Universities and Colleges (SUCs). Other Executive
+Offices are now in, folded into the `NGAs` sheet.
 
-This means departmental totals here are **not** comparable to the agency
+A handful of P/A/Ps inside included agencies are still unlabeled and are dropped
+— currently 7, the last of the Philippine Commission on Women. The Notes tab
+reports the running count.
+
+Departmental totals here are therefore still **not** comparable to the agency
 dashboard's whole-of-budget figures, and should not be read as national totals.
 
 ## Mobile

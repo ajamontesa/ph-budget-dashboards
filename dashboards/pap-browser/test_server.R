@@ -26,7 +26,7 @@ testServer(app, {
                     q_program = "", q_pap = "", grain = "pap", tier = ALL_TIERS,
                     pap_type = c("Regular Activity", "Locally-Funded Project",
                                  "Foreign-Assisted Project"))
-  chk("all rows shown", nrow(filtered()) == 2759, nrow(filtered()))
+  chk("all rows shown", nrow(filtered()) == 3350, nrow(filtered()))
   chk("depts in code order", identical(pap()$depts[1], "Congress of the Philippines (CONGRESS)"), pap()$depts[1])
   chk("PREXC codes not in table", !any(grepl("PREXC", names(table_data()))))
   chk("15 total columns", length(shown_cols()) == 15, length(shown_cols()))
@@ -84,9 +84,9 @@ testServer(app, {
   cat("\n-- project type --\n")
   session$setInputs(pap_type = "Locally-Funded Project")
   chk("LFP only", all(filtered()$PAP_TYPE == "Locally-Funded Project"))
-  chk("LFP count", nrow(filtered()) == 1132, nrow(filtered()))
+  chk("LFP count", nrow(filtered()) == 1509, nrow(filtered()))
   session$setInputs(pap_type = "Foreign-Assisted Project")
-  chk("FAP count", nrow(filtered()) == 88, nrow(filtered()))
+  chk("FAP count", nrow(filtered()) == 91, nrow(filtered()))
   session$setInputs(pap_type = c("Regular Activity","Locally-Funded Project",
                                  "Foreign-Assisted Project"))
 
@@ -259,9 +259,15 @@ testServer(app, {
   chk("roll-up preserves the total", isTRUE(all.equal(pap_tot, prog_tot)))
   chk("program identity has three columns", length(id_cols()) == 3)
   chk("P/A/P column is gone", !"P/A/P" %in% names(table_data()))
-  chk("one row per department+agency+program",
+  # One row per program LABEL, not per code. Three codes in the current
+  # workbook carry two names apiece -- a genuine NCSC renumbering, plus two
+  # rows that took a tier bucket as their program name. They are reported in
+  # the sidebar rather than merged, since merging would hide the mislabels.
+  chk("one row per department+agency+program label",
       !any(duplicated(str_c(grained()$DEPARTMENT, grained()$AGENCY,
-                            grained()$PREXC_PROG))))
+                            grained()$PREXC_PROG, grained()$PROGRAM))))
+  chk("program label clashes are reported", pap()$prog_label_clashes >= 0,
+      pap()$prog_label_clashes)
 
   # Blanks must not become zeroes in the roll-up.
   chk("roll-up keeps blank years blank", any(is.na(grained()$NEP_2020_EXP_TOTAL)))

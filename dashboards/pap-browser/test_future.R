@@ -62,7 +62,7 @@ sucs2$NEP_2027_EXP_5DS <- "500"
 
 tmpdir <- file.path(tempdir(), "future"); dir.create(tmpdir, showWarnings = FALSE)
 dir.create(file.path(tmpdir, "data"), showWarnings = FALSE)
-write_xlsx(list(NGAs = ngas2, `DPWH-sub` = dpwh2, SUCs = sucs2, OEOs = sucs[0, ]),
+write_xlsx(list(NGAs = ngas2, `DPWH-sub` = dpwh2, SUCs = sucs2),
            file.path(tmpdir, "data", "Compiled_-_PAPs.xlsx"))
 file.copy("app.R", file.path(tmpdir, "app.R"), overwrite = TRUE)
 
