@@ -190,6 +190,16 @@ empty and `NEP vs Prior GAA %` carries the comparison.
 - **Utilization axes are anchored at 0–100%.** A low rate should read as low
   rather than being stretched to fill the panel. Rates above 100% extend the
   axis rather than being clipped.
+- **SUCs are a department-level block.** State Universities and Colleges are
+  carried as 119 institutions under a single SUC department placed directly
+  after DepEd, matching the GAA's structure. In the source sheet the SUC header
+  row sits after DepEd while the institutions sit much later, after CHR; the
+  dashboard reassembles the block, so sheet row numbers will not match the order
+  shown. SUCs appear in the department rankings as one entry and in the agency
+  rankings as individual institutions.
+- **A department is placed at its header row**, not at its first member, so a
+  non-contiguous block lands where its header says rather than where its
+  earliest member happens to fall.
 - **Sheet order is preserved.** Departments and agencies appear in the order
   they occupy in the source sheet, which follows the GAA's own structural
   sequence. Alphabetizing would destroy it, so every table, filter and export

@@ -298,6 +298,10 @@ tidy_budget <- function(raw) {
          "Found: ", paste(names(raw), collapse = " | "))
   }
 
+  # Year headers are numbers in the source, and some export paths render them
+  # as "2016.0". Accept either and normalize, so a change in how the sheet is
+  # published cannot silently drop every year column.
+  names(raw) <- str_replace(names(raw), "^(\\d{4})\\.0+$", "\\1")
   year_cols <- names(raw)[str_detect(names(raw), "^\\d{4}$")]
   if (length(year_cols) == 0) stop("No 4-digit year columns found in the sheet header.")
 
@@ -324,12 +328,38 @@ tidy_budget <- function(raw) {
            !is.na(agency),     agency != "",
            !is.na(particular))
 
-  sheet_order <- df %>%
+  # A department sits where its HEADER row sits (the row where department ==
+  # agency), not where its earliest member happens to fall.
+  #
+  # This matters because a department's rows need not be contiguous. State
+  # Universities and Colleges is the case in point: its header row sits
+  # directly after DepEd, which is where the block belongs, while the 119
+  # individual SUCs sit near the end of the sheet, after CHR. Anchoring to the
+  # earliest member row would drop the whole block to the bottom. Anchoring to
+  # the header row places it after DepEd as intended, and the members still
+  # sort among themselves in their own sheet order.
+  #
+  # On the current sheet the header row is also the earliest row for all 39
+  # departments, so this rule and a plain min-of-members rule agree. It is kept
+  # because it states the intent rather than depending on that coincidence: if
+  # members are ever inserted above their own header row, the block stays where
+  # the header puts it. Where a department has no header row at all, both rules
+  # fall back to the earliest member alike.
+  agency_order <- df %>%
     mutate(.row = row_number()) %>%
     group_by(department, agency) %>%
-    summarise(agency_ord = min(.row), .groups = "drop") %>%
+    summarise(agency_ord = min(.row), .groups = "drop")
+
+  header_order <- agency_order %>%
+    filter(department == agency) %>%
     group_by(department) %>%
-    mutate(dept_ord = min(agency_ord)) %>%
+    summarise(header_ord = min(agency_ord), .groups = "drop")
+
+  sheet_order <- agency_order %>%
+    left_join(header_order, by = "department") %>%
+    group_by(department) %>%
+    # Fall back to the earliest member for any department with no header row.
+    mutate(dept_ord = dplyr::coalesce(header_ord, min(agency_ord))) %>%
     ungroup() %>%
     select(department, agency, dept_ord, agency_ord)
 
@@ -953,6 +983,22 @@ ui <- page_navbar(
       <p>Departments and agencies appear in <b>the order they occupy in the source sheet</b>,
       which follows the GAA\'s own structural sequence, not alphabetical order. Every table,
       filter and export preserves it.</p>
+      <p>A department is placed at its own header row rather than at its first member,
+      because a department\'s rows need not be contiguous in the sheet. State Universities
+      and Colleges is the case in point \u2014 see below.</p>
+
+      <h5>State Universities and Colleges</h5>
+      <p>SUCs are carried as their own department-level block of 119 institutions, placed
+      directly after DepEd, which is where they sit in the GAA\'s structure. The individual
+      universities and colleges follow in the order the sheet lists them.</p>
+      <p>In the source sheet the SUC header row sits after DepEd while the individual
+      institutions sit much later, after the Commission on Human Rights. The dashboard
+      reassembles the block; nothing is missing or duplicated, but the row numbers in the
+      sheet will not match the order shown here.</p>
+      <p>Because SUCs form a department-level block rather than an ordinary line agency,
+      they appear in the department rankings as a single entry and in the agency rankings
+      as individual institutions. Treat the SUC block as comparable to a department, not to
+      a bureau.</p>
 
       <h5>Coverage</h5>
       <p>This dashboard covers the <b>national agency level</b>: departments, their bureaux

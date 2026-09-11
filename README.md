@@ -8,7 +8,7 @@ companions to the report and briefing suite at
 
 | Directory | Scope | Data available | Source | Status |
 |---|---|---|---|---|
-| `dashboards/agency-budget-utilization/` | National agency level — departments, bureaux, attached agencies, aggregate blocks | NEP, GAA, allotments, obligations, disbursements | [PH Budget Data Set](https://docs.google.com/spreadsheets/d/1P3q46DGcN3SZ7cRwXfEhAMiDqCqQof1s3LV0-CK2lIY) (Google Sheet) | Live |
+| `dashboards/agency-budget-utilization/` | National agency level — departments, bureaux, attached agencies, State Universities and Colleges, aggregate blocks | NEP, GAA, allotments, obligations, disbursements | [PH Budget Data Set](https://docs.google.com/spreadsheets/d/1P3q46DGcN3SZ7cRwXfEhAMiDqCqQof1s3LV0-CK2lIY) (Google Sheet) | Live |
 | `dashboards/pap-browser/` | Program / Activity / Project level | NEP and GAA only — DBM publishes no P/A/P execution data | `Compiled_-_PAPs.xlsx` in [ph-budget-analysis](https://github.com/ajamontesa/ph-budget-analysis) | Live |
 
 The two are complements, not overlapping views. The agency dashboard answers
@@ -16,7 +16,8 @@ The two are complements, not overlapping views. The agency dashboard answers
 P/A/P dashboard answers "what is inside that agency's budget line". Only the
 agency dashboard carries execution, and only it covers the whole budget — the
 P/A/P dataset does not yet include SUCs, so its departmental totals are not
-national totals.
+national totals. The agency dashboard does cover SUCs, as a department-level
+block of 119 institutions placed after DepEd.
 
 Each dashboard is a self-contained directory with its own `app.R`,
 `manifest.json` and `README.md`, published to Posit Connect Cloud as separate
@@ -82,6 +83,12 @@ These hold everywhere and are worth keeping consistent as dashboards are added.
   dashboard, the fixed-width UACS `DEPARTMENT` and `AGENCY` codes in the P/A/P
   dashboard — and both suppress DT's initial sort so it cannot undo it. Codes
   used only for ordering are not displayed.
+- **A department is placed at its header row, not its first member.** Source
+rows for one department need not be contiguous: in the agency sheet the SUC
+header row sits after DepEd while the 119 institutions sit near the end, after
+CHR. Anchoring to the header row reassembles the block where it belongs and
+lets members sort among themselves. The two rules agree on the current sheet;
+the header rule states the intent rather than relying on that coincidence.
 - **The data frontier is ragged.** NEP runs a year ahead of GAA, which runs a
   year ahead of execution. Reference years are detected from the data on every
   load, never hard-coded.

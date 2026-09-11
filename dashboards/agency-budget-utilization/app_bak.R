@@ -41,7 +41,45 @@ SHEET_TAB <- "NEP-GAA-All-Obl-Dis"
 
 SHEET_URL <- paste0("https://docs.google.com/spreadsheets/d/", SHEET_ID)
 
-PARTICULARS <- c("NEP", "GAA", "Allotments", "Obligations", "Disbursements")
+# Canonical particulars. Internal keys are used throughout the pipeline;
+# labels are what a reader sees in the Data Viewer and its filter.
+#
+# Appropriations come in two bases:
+#   New   = new appropriations only, what Congress legislates for the year
+#   Total = New + Automatic (RLIP, special accounts, debt service and so on)
+# Total is always >= New for the same line.
+PARTICULAR_KEYS <- c("NEP_new", "NEP_total", "GAA_new", "GAA_total",
+                     "Allotments", "Obligations", "Disbursements")
+
+PARTICULAR_LABELS <- c(
+  NEP_new       = "NEP New Appropriations",
+  NEP_total     = "NEP Total Appropriations",
+  GAA_new       = "GAA New Appropriations",
+  GAA_total     = "GAA Total Appropriations",
+  Allotments    = "Allotments",
+  Obligations   = "Obligations",
+  Disbursements = "Disbursements"
+)
+
+# Key groups. Anything that needs "the NEP rows" or "the appropriations rows"
+# refers to these rather than spelling out literals: a stale literal after the
+# New/Total split is what silently emptied the budget-year selector once
+# already, and a literal gives no error when it stops matching.
+NEP_KEYS       <- c("NEP_new", "NEP_total")
+GAA_KEYS       <- c("GAA_new", "GAA_total")
+APPROP_KEYS    <- c(NEP_KEYS, GAA_KEYS)
+EXECUTION_KEYS <- c("Allotments", "Obligations", "Disbursements")
+
+# Appropriations basis. New is the default: it is what Congress actually
+# legislates, so it is the fairer basis for comparing agencies and for reading
+# what the legislature changed.
+BASIS_CHOICES <- c("New Appropriations" = "new", "Total Appropriations" = "total")
+BASIS_LABEL   <- c(new = "New Appropriations", total = "Total Appropriations")
+BASIS_SHORT   <- c(new = "New", total = "Total")
+
+# Lighter fills for the Total bar sitting behind the New bar
+FILL_TOTAL_DEPT <- "#A9C4D3"
+FILL_TOTAL_AGCY <- "#BFE1EB"
 
 AGG_TOTAL_BUDGET <- "Total Budget"
 AGG_TOTAL_NGAS   <- "Total National Government Agencies (NGAs)"
@@ -194,11 +232,27 @@ fetch_sheet_raw <- function() {
   as.data.frame(out, stringsAsFactors = FALSE)
 }
 
+# Map a sheet PARTICULAR onto an internal key.
+#
+# The New/Total distinction is load-bearing and this matching is deliberately
+# strict about it. A loose "starts with NEP" rule maps both
+# "NEP New Appropriations" and "NEP Total Appropriations" onto one key, and the
+# de-duplicating summarise downstream then ADDS them — every NEP figure
+# silently inflated to New + Total, with no error raised anywhere.
+#
+# So qualified forms are matched explicitly; a bare "NEP"/"GAA" is read as the
+# historical Total form for backward compatibility; and anything else starting
+# with NEP or GAA returns NA rather than being guessed at. An unrecognised row
+# disappearing is a visible failure. A silently doubled one is not.
 normalize_particular <- function(x) {
   x <- str_squish(x)
   case_when(
-    str_detect(x, regex("^NEP",   ignore_case = TRUE)) ~ "NEP",
-    str_detect(x, regex("^GAA",   ignore_case = TRUE)) ~ "GAA",
+    str_detect(x, regex("^NEP\\b.*\\bnew\\b",   ignore_case = TRUE)) ~ "NEP_new",
+    str_detect(x, regex("^NEP\\b.*\\btotal\\b", ignore_case = TRUE)) ~ "NEP_total",
+    str_detect(x, regex("^GAA\\b.*\\bnew\\b",   ignore_case = TRUE)) ~ "GAA_new",
+    str_detect(x, regex("^GAA\\b.*\\btotal\\b", ignore_case = TRUE)) ~ "GAA_total",
+    str_detect(x, regex("^NEP$|^NEP\\s+appropriations$", ignore_case = TRUE)) ~ "NEP_total",
+    str_detect(x, regex("^GAA$|^GAA\\s+appropriations$", ignore_case = TRUE)) ~ "GAA_total",
     str_detect(x, regex("^Allot", ignore_case = TRUE)) ~ "Allotments",
     str_detect(x, regex("^Oblig", ignore_case = TRUE)) ~ "Obligations",
     str_detect(x, regex("^Disb",  ignore_case = TRUE)) ~ "Disbursements",
@@ -256,7 +310,14 @@ tidy_budget <- function(raw) {
 
   df$department <- str_squish(df$department)
   df$agency     <- str_squish(df$agency)
-  df$particular <- normalize_particular(df$particular)
+
+  # Keep the raw label so anything unmatched can be reported: a new row type in
+  # the sheet should surface as a visible warning, not vanish quietly.
+  particular_raw <- str_squish(df$particular)
+  df$particular  <- normalize_particular(particular_raw)
+  unknown_particulars <- sort(unique(
+    particular_raw[is.na(df$particular) & !is.na(particular_raw) & particular_raw != ""]
+  ))
 
   df <- df %>%
     filter(!is.na(department), department != "",
@@ -322,7 +383,8 @@ tidy_budget <- function(raw) {
     left_join(sheet_order, by = c("department", "agency")) %>%
     left_join(structure_flags, by = c("department", "agency")) %>%
     select(department, agency, level, is_department, is_agency, n_child_agencies,
-           dept_ord, agency_ord, particular, expense_class, period, year, amount)
+           dept_ord, agency_ord, particular, expense_class, period, year, amount) %>%
+    structure(unknown_particulars = unknown_particulars)
 }
 
 # ---------------------------------------------------------------------------
@@ -335,7 +397,7 @@ widen_budget <- function(long) {
            dept_ord, agency_ord, year, particular, amount) %>%
     pivot_wider(names_from = particular, values_from = amount)
 
-  for (p in PARTICULARS) if (!p %in% names(w)) w[[p]] <- NA_real_
+  for (p in PARTICULAR_KEYS) if (!p %in% names(w)) w[[p]] <- NA_real_
 
   yr <- range(long$year, na.rm = TRUE)
   w %>%
@@ -346,9 +408,18 @@ widen_budget <- function(long) {
     ungroup()
 }
 
-build_indicators <- function(long) {
+# `basis` selects which appropriations series drives every NEP/GAA indicator:
+# "new" (new appropriations only) or "total" (new + automatic). Both raw series
+# are retained on the frame either way, because the largest-budgets chart draws
+# them together regardless of which one the ranking uses.
+build_indicators <- function(long, basis = "new") {
 
   w <- widen_budget(long)
+
+  nep_col <- if (identical(basis, "new")) "NEP_new" else "NEP_total"
+  gaa_col <- if (identical(basis, "new")) "GAA_new" else "GAA_total"
+  w$NEP <- w[[nep_col]]
+  w$GAA <- w[[gaa_col]]
 
   tot_budget <- w %>%
     filter(department == AGG_TOTAL_BUDGET) %>%
@@ -418,7 +489,7 @@ at_level <- function(df, lvl) {
 }
 
 has_any_value <- function(df) {
-  rowSums(!is.na(df[, PARTICULARS, drop = FALSE])) > 0
+  rowSums(!is.na(df[, PARTICULAR_KEYS, drop = FALSE])) > 0
 }
 
 # ---------------------------------------------------------------------------
@@ -429,11 +500,14 @@ has_any_value <- function(df) {
 # ahead of execution. Never assume a single "latest year".
 reference_years <- function(long) {
   yr_with <- function(p) {
-    v <- long %>% filter(particular == p, !is.na(amount)) %>% pull(year)
+    v <- long %>% filter(particular %in% p, !is.na(amount)) %>% pull(year)
     if (length(v) == 0) NA_integer_ else max(v)
   }
-  list(nep   = yr_with("NEP"),
-       gaa   = yr_with("GAA"),
+  # Either basis counts: the frontier is a property of the year, not of which
+  # appropriations series the reader has selected. Keeping it stable across the
+  # toggle also stops the year selectors jumping when the basis changes.
+  list(nep   = yr_with(NEP_KEYS),
+       gaa   = yr_with(GAA_KEYS),
        alloc = yr_with("Allotments"),
        obl   = yr_with("Obligations"),
        disb  = yr_with("Disbursements"))
@@ -462,7 +536,10 @@ years_with <- function(long, particulars) {
 # process, so no locking is needed.
 .cache <- new.env(parent = emptyenv())
 .cache$long       <- NULL   # tidy long frame
-.cache$ind        <- NULL   # computed indicators
+.cache$ind_new    <- NULL   # indicators on the New Appropriations basis
+.cache$ind_total  <- NULL   # indicators on the Total Appropriations basis
+.cache$has_new    <- FALSE  # does the sheet actually carry New rows?
+.cache$unknown    <- character(0)  # PARTICULAR labels the parser did not match
 .cache$ref        <- NULL   # reference years
 .cache$fetched_at <- NULL   # last SUCCESSFUL fetch
 .cache$next_check <- NULL   # earliest time we should try again
@@ -492,9 +569,19 @@ load_budget_data <- function(force = FALSE) {
     return(invisible(FALSE))
   }
 
+  # Both bases are computed once here rather than per session, so flipping the
+  # toggle is a lookup rather than a recomputation of the whole pipeline.
   parsed <- try({
     long <- tidy_budget(raw)
-    list(long = long, ind = build_indicators(long), ref = reference_years(long))
+    list(
+      long      = long,
+      ind_new   = build_indicators(long, "new"),
+      ind_total = build_indicators(long, "total"),
+      ref       = reference_years(long),
+      has_new   = any(long$particular %in% c("NEP_new", "GAA_new") &
+                        !is.na(long$amount)),
+      unknown   = attr(long, "unknown_particulars") %||% character(0)
+    )
   }, silent = TRUE)
 
   if (inherits(parsed, "try-error")) {
@@ -507,7 +594,10 @@ load_budget_data <- function(force = FALSE) {
   }
 
   .cache$long       <- parsed$long
-  .cache$ind        <- parsed$ind
+  .cache$ind_new    <- parsed$ind_new
+  .cache$ind_total  <- parsed$ind_total
+  .cache$has_new    <- parsed$has_new
+  .cache$unknown    <- parsed$unknown
   .cache$ref        <- parsed$ref
   .cache$fetched_at <- Sys.time()
   .cache$next_check <- Sys.time() + CACHE_TTL_SECONDS
@@ -609,6 +699,20 @@ ui <- page_navbar(
     width = 330,
     title = "Filters",
 
+    # Appropriations basis governs every NEP/GAA figure on every tab, so it
+    # lives above the tab-conditional block and stays visible throughout.
+    # A per-tab copy would need two inputs kept in sync, which is a bug
+    # waiting to happen.
+    radioButtons("basis", "Appropriations basis",
+                 choices = BASIS_CHOICES, selected = "new"),
+    div(class = "small text-muted",
+        "New = what Congress legislates for the year. Total = New + Automatic ",
+        "(RLIP, special accounts, debt service). Total is always at least as ",
+        "large as New."),
+    uiOutput("basis_warning"),
+
+    hr(),
+
     # The Overview tab is whole-of-budget and carries its own year controls,
     # so the department / agency filters are hidden there to avoid implying
     # they do something.
@@ -627,8 +731,9 @@ ui <- page_navbar(
                      options = list(placeholder = "All agencies \u2014 type to search")),
       conditionalPanel(
         condition = "input.nav == 'data'",
-        selectizeInput("f_part", "Particular", choices = PARTICULARS,
-                       selected = PARTICULARS, multiple = TRUE,
+        selectizeInput("f_part", "Particular",
+                       choices = setNames(PARTICULAR_KEYS, PARTICULAR_LABELS),
+                       selected = PARTICULAR_KEYS, multiple = TRUE,
                        options = list(placeholder = "All particulars"))
       ),
       sliderInput("f_years", "Years", min = 2016, max = 2027,
@@ -678,13 +783,23 @@ ui <- page_navbar(
             "The budget year drives the largest-budgets and congressional-adjustment ",
             "charts; the utilization year drives the rate rankings. They move ",
             "independently because the data frontier is ragged \u2014 the newest ",
-            "proposal year has no enacted counterpart and no execution data yet.")
+            "proposal year has no enacted counterpart and no execution data yet."),
+        div(class = "small text-muted mt-1",
+            HTML(paste0("Whether NEP and GAA are read as <b>New</b> or <b>Total</b> ",
+                        "appropriations is set by the <b>Appropriations basis</b> ",
+                        "control in the sidebar, and applies to this tab and to ",
+                        "Agency Trends alike.")))
       )
     ),
 
     card(
       card_header("Largest budgets"),
       card_body(
+        div(class = "small text-muted mb-2",
+            "Each bar shows both bases: the pale bar is Total Appropriations and ",
+            "the solid bar drawn over it is New Appropriations, so the gap between ",
+            "them is the automatic component. The basis toggle sets which one the ",
+            "ranking and the printed value use \u2014 both bars are always shown."),
         layout_columns(
           col_widths = c(6, 6),
           plotOutput("plot_top_dept", height = "auto"),
@@ -733,9 +848,11 @@ ui <- page_navbar(
           div()
         ),
         div(class = "small text-muted mb-2",
-            "GAA against NEP within the same fiscal year. Ranking by percent favours ",
-            "small agencies where a modest peso augmentation is a large proportion; ",
-            "ranking by pesos shows where the money actually moved."),
+            "GAA against NEP within the same fiscal year, on whichever basis the ",
+            "sidebar toggle selects \u2014 showing both at once here would be ",
+            "unreadable. Ranking by percent favours small agencies where a modest ",
+            "peso augmentation is a large proportion; ranking by pesos shows where ",
+            "the money actually moved."),
         plotOutput("plot_cong", height = "auto")
       )
     )
@@ -777,6 +894,8 @@ ui <- page_navbar(
               "<b>Obligation Rate</b> = Obligations \u00f7 Allotments. ",
               "<b>Disbursement Rate</b> = Disbursements \u00f7 Allotments. ",
               "<b>Share of Department</b> appears for agency rows only. ",
+              "All NEP and GAA figures follow the <b>Appropriations basis</b> ",
+              "selected in the sidebar. ",
               "<b>NEP vs Prior GAA</b> compares this year's proposal against last ",
               "year's enacted budget. <b>GAA vs NEP</b> is the congressional ",
               "adjustment within the same year. An em-dash (\u2014) means not ",
@@ -840,10 +959,27 @@ ui <- page_navbar(
       and attached agencies, and the aggregate blocks. Programme, Activity and Project
       detail is out of scope here and is planned as a separate dashboard, which will carry
       appropriations only \u2014 DBM does not publish P/A/P-level execution data.</p>
-      <p>Appropriations (NEP and GAA) are <b>Total Appropriations</b>
-      \u2014 the sum of New and Automatic Appropriations. Agencies with large automatic
-      components are therefore not directly comparable to peers funded mostly by new
-      appropriations.</p>
+      <h5>New versus Total Appropriations</h5>
+      <p>NEP and GAA are published on two bases, and the sidebar toggle switches every
+      figure on the Budget Overview, Agency Trends and Key Indicators tabs between
+      them.</p>
+      <ul>
+        <li><b>New Appropriations</b> are what Congress legislates for the year. This is
+        the default, and it is the fairer basis for comparing agencies or for reading
+        what the legislature changed.</li>
+        <li><b>Total Appropriations</b> are New plus Automatic \u2014 Retirement and Life
+        Insurance Premiums, special accounts, debt service and similar items that do not
+        pass through the annual appropriations debate.</li>
+      </ul>
+      <p>Total is always at least as large as New for the same line. Agencies with heavy
+      automatic components look very different on the two bases, which is exactly why the
+      largest-budgets chart draws both: the pale tail beyond the solid bar is the
+      automatic component.</p>
+      <p>The congressional-adjustment chart follows the toggle rather than showing both,
+      since a diverging bar carrying two bases at once is unreadable.</p>
+      <p>The Data Viewer is unaffected by the toggle: it shows the sheet as published,
+      with New and Total as separate rows.</p>
+
       <p>GOCCs, LGU transfers and Special Purpose Funds have NEP and GAA figures only.
       DBM does not publish disaggregated SAAODB reports for these, so utilization panels
       are blank for them by design rather than by error.</p>
@@ -986,7 +1122,41 @@ server <- function(input, output, session) {
 
   # Reading the cache rather than recomputing: the pipeline has already run.
   budget_long <- reactive({ data_version(); .cache$long })
-  budget_ind  <- reactive({ data_version(); .cache$ind })
+  # If the sheet carries no New rows at all, fall back to Total rather than
+  # serving empty charts, and say so.
+  basis <- reactive({
+    b <- input$basis %||% "new"
+    data_version()
+    if (identical(b, "new") && !isTRUE(.cache$has_new)) "total" else b
+  })
+
+  output$basis_warning <- renderUI({
+    data_version()
+    msgs <- list()
+    if (identical(input$basis %||% "new", "new") && !isTRUE(.cache$has_new)) {
+      msgs <- c(msgs, list(div(
+        class = "small mt-2 p-2 border-start border-3 border-warning bg-light",
+        "No New Appropriations rows were found in the sheet, so figures are ",
+        "shown on the Total basis.")))
+    }
+    if (length(.cache$unknown)) {
+      msgs <- c(msgs, list(div(
+        class = "small mt-2 p-2 border-start border-3 border-warning bg-light",
+        paste0("Unrecognised PARTICULAR rows were skipped: ",
+               paste(utils::head(.cache$unknown, 6), collapse = "; "),
+               ". They are not included in any figure."))))
+    }
+    if (length(msgs)) tagList(msgs) else NULL
+  })
+
+  budget_ind  <- reactive({
+    data_version()
+    if (identical(basis(), "new")) .cache$ind_new else .cache$ind_total
+  })
+
+  # Wording used in titles and captions so every chart states its basis.
+  basis_lab   <- reactive(unname(BASIS_LABEL[basis()]))
+  basis_short <- reactive(unname(BASIS_SHORT[basis()]))
   ref_years   <- reactive({ data_version(); .cache$ref })
 
   output$last_loaded <- renderText({
@@ -1012,18 +1182,35 @@ server <- function(input, output, session) {
                       value = isolate(input$f_years) %||% yrs)
 
     # --- Overview-local year controls ------------------------------------
-    bud_years  <- years_with(d, c("NEP", "GAA"))
+    bud_years  <- years_with(d, APPROP_KEYS)
     exec_years <- years_with(d, "Allotments")
 
+    # These guards used to fail silently. An empty selector leaves input$ov_year
+    # NULL, every req() downstream halts, and the charts render as blank space
+    # with nothing anywhere saying why. Now it says why.
     if (length(bud_years)) {
       updateSelectInput(session, "ov_year",
                         choices = rev(as.character(bud_years)),
                         selected = as.character(max(bud_years)))
+    } else {
+      showNotification(
+        paste0("No NEP or GAA rows were recognised, so the budget-year selector ",
+               "is empty and the appropriations charts cannot draw. Check the ",
+               "PARTICULAR column in the sheet."),
+        type = "error", duration = NULL
+      )
     }
+
     if (length(exec_years)) {
       updateSelectInput(session, "ov_exec_year",
                         choices = rev(as.character(exec_years)),
                         selected = as.character(max(exec_years)))
+    } else {
+      showNotification(
+        paste0("No Allotments rows were recognised, so the utilization year ",
+               "selector is empty and the rate charts cannot draw."),
+        type = "warning", duration = NULL
+      )
     }
   })
 
@@ -1034,7 +1221,9 @@ server <- function(input, output, session) {
     req(input$ov_year)
     d <- budget_long() %>%
       filter(year == as.integer(input$ov_year), !is.na(amount))
-    avail <- intersect(c("GAA", "NEP"), unique(d$particular))
+    have <- unique(d$particular)
+    avail <- c(if (any(GAA_KEYS %in% have)) "GAA",
+               if (any(NEP_KEYS %in% have)) "NEP")
     if (!length(avail)) return()
     sel <- if ("GAA" %in% avail) "GAA" else "NEP"
     if (!is.null(input$ov_measure) && input$ov_measure %in% avail) sel <- input$ov_measure
@@ -1088,41 +1277,75 @@ server <- function(input, output, session) {
   ov_exec_yr <- reactive({ req(input$ov_exec_year); as.integer(input$ov_exec_year) })
   ov_measure <- reactive(input$ov_measure %||% "GAA")
 
+  # Both appropriations bases are drawn on every bar. Total is always >= New
+  # for the same line, so the pale Total bar is drawn first and the solid New
+  # bar over it, leaving the automatic component visible as the exposed tail.
+  # The basis toggle changes only the ranking and the printed value.
   top_budget_plot <- function(lvl) {
     req(input$ov_year, input$ov_measure)
-    meas <- ov_measure()
+    meas <- ov_measure()          # "NEP" or "GAA"
     yr   <- ov_year()
     div  <- unit_divisor(input$unit)
+    b    <- basis()
+
+    col_new   <- paste0(meas, "_new")
+    col_total <- paste0(meas, "_total")
+    rank_col  <- if (identical(b, "new")) col_new else col_total
 
     df <- budget_ind() %>%
       at_level(lvl) %>%
       filter(year == yr) %>%
-      mutate(val = .data[[meas]]) %>%
-      filter(!is.na(val), val > 0) %>%
-      slice_max(val, n = n_top_budget(), with_ties = FALSE)
+      mutate(v_new   = .data[[col_new]],
+             v_total = .data[[col_total]],
+             v_rank  = .data[[rank_col]]) %>%
+      filter(!is.na(v_rank), v_rank > 0) %>%
+      slice_max(v_rank, n = n_top_budget(), with_ties = FALSE)
 
     if (nrow(df) == 0) {
-      return(empty_plot(paste0("No ", meas, " data at this level for FY ", yr, ".")))
+      return(empty_plot(paste0("No ", meas, " ", basis_lab(),
+                               " at this level for FY ", yr, ".")))
     }
 
-    df <- df %>% mutate(lab = wrap_lab(agency, width = lab_width()))
+    solid <- if (lvl == "Department") PBC_NAVY else PBC_TEAL
+    pale  <- if (lvl == "Department") FILL_TOTAL_DEPT else FILL_TOTAL_AGCY
 
-    ggplot(df, aes(x = reorder(lab, val), y = val / div)) +
-      geom_col(fill = if (lvl == "Department") PBC_NAVY else PBC_TEAL, width = 0.75) +
-      geom_text(aes(label = fmt_amt(val, div, unit_digits(input$unit))),
+    lab_total <- "Total Appropriations (New + Automatic)"
+    lab_new   <- "New Appropriations"
+
+    df <- df %>%
+      mutate(lab = wrap_lab(agency, width = lab_width()),
+             ykey = reorder(lab, v_rank),
+             # The printed value follows the toggle; it is placed past the
+             # longer of the two bars so it never sits on top of a bar.
+             txt = fmt_amt(if (identical(b, "new")) v_new else v_total,
+                           div, unit_digits(input$unit)),
+             tip = pmax(v_total, v_new, na.rm = TRUE))
+
+    ggplot(df) +
+      geom_col(aes(x = ykey, y = v_total / div, fill = lab_total), width = 0.75) +
+      geom_col(aes(x = ykey, y = v_new   / div, fill = lab_new),   width = 0.75) +
+      geom_text(aes(x = ykey, y = tip / div, label = txt),
                 hjust = -0.12, size = val_sz(), colour = PBC_GREY) +
       coord_flip(clip = "off") +
-      scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.22))) +
+      scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.24))) +
+      scale_fill_manual(
+        values = setNames(c(pale, solid), c(lab_total, lab_new)),
+        breaks = c(lab_new, lab_total)
+      ) +
       labs(
         title = paste0("Top ", n_top_budget(), " ",
                        if (lvl == "Department") "departments" else "agencies",
-                       " by ", meas, ", FY ", yr),
-        subtitle = if (meas == "NEP") "Proposed appropriations \u2014 not yet enacted"
-                   else "Enacted appropriations",
+                       " by ", meas, " ", basis_short(), ", FY ", yr),
+        subtitle = paste0(
+          if (meas == "NEP") "Proposed appropriations \u2014 not yet enacted."
+          else "Enacted appropriations.",
+          " Ranked and labelled by ", basis_lab(), "."),
         x = NULL, y = unit_label(input$unit),
-        caption = "Total Appropriations (New + Automatic). Aggregate rows excluded. Source: DBM."
+        caption = paste0("Both bases shown: the exposed pale tail is the automatic ",
+                         "component. Aggregate rows excluded. Source: DBM.")
       ) +
-      theme_pbc(base_size = 12)
+      theme_pbc(base_size = base_sz()) +
+      theme(legend.position = "top")
   }
 
   output$plot_top_dept <- renderPlot(top_budget_plot("Department"), height = h_top)
@@ -1267,9 +1490,11 @@ server <- function(input, output, session) {
                                    "Cut by Congress"       = PBC_RUST)) +
       labs(
         title = paste0("Largest congressional adjustments, FY ", yr, " \u2014 ",
-                       if (lvl == "Department") "departments" else "agencies"),
-        subtitle = paste0("GAA against NEP in the same year. Top and bottom ", n_top_cong(),
-                          " by ", if (metric == "pct") "percentage change" else "peso change", "."),
+                       if (lvl == "Department") "departments" else "agencies",
+                       " (", basis_short(), ")"),
+        subtitle = paste0("GAA against NEP in the same year, on the ", basis_lab(),
+                          " basis. Top and bottom ", n_top_cong(), " by ",
+                          if (metric == "pct") "percentage change" else "peso change", "."),
         x = NULL,
         y = if (metric == "pct") "GAA vs NEP" else paste0("GAA less NEP (", unit_label(input$unit), ")"),
         caption = paste0("Congress cannot raise the overall total, so augmentations are ",
@@ -1387,7 +1612,8 @@ server <- function(input, output, session) {
         "NEP % of Total Budget" = PBC_NAVY,  "GAA % of Total Budget" = PBC_BLUE,
         "NEP % of Total NGAs"   = PBC_GREEN, "GAA % of Total NGAs"   = PBC_TEAL
       )) +
-      labs(title = "Percent shares", x = NULL, y = NULL,
+      labs(title = paste0("Percent shares (", basis_short(), " Appropriations)"),
+           x = NULL, y = NULL,
            caption = paste0("Share of parent department is not plotted here \u2014 see the ",
                             "Key Indicators tab for it.")) +
       theme_pbc(base_size = base_sz() + 1)
@@ -1415,7 +1641,8 @@ server <- function(input, output, session) {
       scale_fill_manual(values = c("NEP vs prior NEP" = PBC_TEAL,
                                    "GAA vs prior GAA" = PBC_NAVY,
                                    "NEP vs prior GAA" = PBC_RUST)) +
-      labs(title = "Year-on-year change", x = NULL, y = NULL,
+      labs(title = paste0("Year-on-year change (", basis_short(), " Appropriations)"),
+           x = NULL, y = NULL,
            caption = paste0("For the newest NEP year no GAA exists yet, so only ",
                             "'NEP vs prior GAA' is available.")) +
       theme_pbc(base_size = base_sz() + 1)
@@ -1440,7 +1667,8 @@ server <- function(input, output, session) {
                          expand = expansion(mult = c(0.12, 0.12))) +
       scale_x_continuous(breaks = scales::breaks_width(1)) +
       scale_fill_manual(values = c("Augmented" = PBC_GREEN, "Cut" = PBC_RUST)) +
-      labs(title = "Congressional adjustment: GAA vs NEP, same year", x = NULL, y = NULL,
+      labs(title = paste0("Congressional adjustment: GAA vs NEP, same year (",
+                          basis_short(), ")"), x = NULL, y = NULL,
            caption = paste0("Positive means the enacted budget exceeded the proposal. ",
                             "No bar for the newest NEP year, which has no GAA yet.")) +
       theme_pbc(base_size = base_sz() + 1)
@@ -1550,6 +1778,8 @@ server <- function(input, output, session) {
       writeLines(
         c("# PH Budget Data Set - agency-level key indicators, filtered export",
           "# Indicators down the rows, fiscal years across the columns.",
+          paste0("# Appropriations basis: ", BASIS_LABEL[[basis()]],
+                 " (set by the sidebar toggle)."),
           "# Rates and shares are PROPORTIONS (0.85 = 85.0%).",
           "# Obligation Rate = Obligations / Allotments.",
           "# Disbursement Rate = Disbursements / Allotments.",
@@ -1591,12 +1821,14 @@ server <- function(input, output, session) {
   data_view <- reactive({
     filtered_long() %>%
       select(department, agency, level, dept_ord, agency_ord, particular, year, amount) %>%
-      mutate(particular = factor(particular, levels = PARTICULARS)) %>%
+      mutate(particular = factor(particular, levels = PARTICULAR_KEYS)) %>%
       arrange(dept_ord, agency_ord, particular, year) %>%
       pivot_wider(names_from = year, values_from = amount) %>%
       arrange(dept_ord, agency_ord, particular) %>%
       select(-dept_ord, -agency_ord) %>%
-      mutate(particular = as.character(particular))
+      # Back to the sheet's own wording for display: "NEP_new" is an internal
+      # key, not something a reader should have to decode.
+      mutate(particular = unname(PARTICULAR_LABELS[as.character(particular)]))
   })
 
   output$tbl_data <- renderDT({
@@ -1662,6 +1894,9 @@ server <- function(input, output, session) {
       writeLines(
         c("# PH Budget Data Set - agency level, filtered export",
           "# All amounts in THOUSANDS of pesos, as published by DBM.",
+          "# Appropriations appear on both bases as separate rows:",
+          "#   'New Appropriations'   = what Congress legislates for the year",
+          "#   'Total Appropriations' = New + Automatic. Total >= New always.",
           "# Rows follow the source sheet's order, not alphabetical order.",
           "# Blank = not reported. 0 = reported zero (faithful to SAAODB).",
           paste0("# Source: ", SHEET_URL),

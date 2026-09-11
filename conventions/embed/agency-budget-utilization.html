@@ -122,7 +122,8 @@
     header h1 { font-size: 0.98rem; }
     header .sub { font-size: 0.75rem; }
     .notice { font-size: 0.74rem; padding: 0.4rem 0.8rem; }
-    .back, .fullscreen { font-size: 0.8rem; padding: 0.3rem 0.6rem; }
+    .back, .fullscreen { font-size: 0.76rem; padding: 0.28rem 0.5rem; }
+    header > div:last-child { flex-wrap: wrap; justify-content: flex-end; gap: 0.3rem !important; }
     footer { display: none; }
   }
   /* Only shown if the frame cannot load at all — see the fallback note below. */
@@ -138,6 +139,8 @@
     <div class="sub">National agency level &middot; NEP, GAA and utilization &middot; FY 2016&ndash;2027</div>
   </div>
   <div style="display:flex; gap:0.4rem; align-items:center;">
+    <a class="back" href="pap-browser.html"
+       title="Open the companion P/A/P Browser dashboard">P/A/P Browser</a>
     <a class="fullscreen back" href="https://01a02416-d8a2-3593-56e6-61dc9bdcf5cc.share.connect.posit.cloud/" target="_blank" rel="noopener"
        title="Open the dashboard in its own tab">Full screen &#8599;</a>
     <a class="back" href="index.html">&larr; Back</a>
@@ -145,8 +148,11 @@
 </header>
 
 <div class="notice">
-  All figures are in <strong>thousands of pesos</strong>, as published by the DBM.
-  Source data:
+  All figures are in <strong>thousands of pesos</strong>, as published by the DBM
+  &mdash; not the pesos used by the P/A/P Browser. Covers the whole national budget
+  at agency level, including State Universities and Colleges. For what sits inside
+  an agency&rsquo;s budget line, see the
+  <a href="pap-browser.html">P/A/P Browser</a>. Source data:
   <a href="https://docs.google.com/spreadsheets/d/1P3q46DGcN3SZ7cRwXfEhAMiDqCqQof1s3LV0-CK2lIY"
      target="_blank" rel="noopener">PH Budget Data Set</a>.
 </div>
@@ -185,7 +191,8 @@
 
 <footer>
   People&rsquo;s Budget Coalition &middot;
-  <a href="index.html">All agency reports and briefings</a>
+  <a href="index.html">All agency reports and briefings</a> &middot;
+  <a href="pap-browser.html">P/A/P Browser dashboard</a>
 </footer>
 
 </body>
